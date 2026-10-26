@@ -115,8 +115,10 @@ jobs:
         env:
           CI: true
 
-      # playwright.config.ts defines no projects, so E2E only uses Chromium. Installing every
-      # browser pulled ~180 apt packages (WebKit/Firefox media stacks) and could exhaust the job.
+      # playwright.config.ts defines no projects and runs headless, so E2E only needs Chromium's
+      # headless shell. It is downloaded from Playwright's CDN; `--with-deps` is avoided because
+      # it goes through the runner's apt mirror, which repeatedly stalled on font packages the
+      # tests never use, while ubuntu-latest already ships the shared libraries Chromium needs.
       - name: Read Playwright version
         id: playwright-version
         shell: bash
@@ -127,17 +129,28 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-chromium-shell-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright Chromium headless shell
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        timeout-minutes: 10
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 5
+        run: pnpm exec playwright install --only-shell chromium
 
-      - name: Install Playwright Chromium system dependencies
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
+      - name: Check that Chromium launches
+        id: chromium-launch
+        continue-on-error: true
+        timeout-minutes: 2
+        run: node -e "require('playwright').chromium.launch().then((b) => b.close()).then(() => console.log('Chromium launches'))"
+
+      # Fallback only if a runner image update removed a library Chromium needs. apt retries and a
+      # per-connection timeout keep a stalled mirror from hanging the job.
+      - name: Install Chromium system dependencies (fallback)
+        if: steps.chromium-launch.outcome == 'failure'
         timeout-minutes: 10
-        run: pnpm exec playwright install-deps chromium
+        run: |
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/99ci-network > /dev/null
+          pnpm exec playwright install-deps chromium
+          node -e "require('playwright').chromium.launch().then((b) => b.close()).then(() => console.log('Chromium launches'))"
 
       - name: Run E2E tests
         run: pnpm run test:e2e
