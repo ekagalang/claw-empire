@@ -10,6 +10,10 @@ export function registerTaskTerminalRoutes(ctx: RuntimeContext): void {
 
   app.get("/api/tasks/:id/terminal", (req, res) => {
     const id = String(req.params.id);
+    // The id becomes a file name under logsDir; reject anything that could traverse out of it.
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+      return res.status(400).json({ ok: false, error: "invalid_task_id" });
+    }
     const lines = Math.min(Math.max(Number(req.query.lines ?? 200), 20), 20000);
     const logLimit = Math.min(Math.max(Number(req.query.log_limit ?? 400), 50), 2000);
     const pretty = String(req.query.pretty ?? "0") === "1";
