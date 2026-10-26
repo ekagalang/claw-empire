@@ -3,6 +3,21 @@ import path from "node:path";
 
 export type CliOutputStream = "stdout" | "stderr";
 
+// On Windows the CLI shims (*.cmd) are spawned through cmd.exe, which re-parses the joined
+// argv. Model ids and reasoning levels come from user-editable settings, so they are limited
+// to characters that cmd.exe and POSIX shells treat literally, and may not start with "-".
+const SAFE_CLI_ARG_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:/@+[\]-]{0,199}$/;
+
+export function isSafeCliArgValue(value: string): boolean {
+  return SAFE_CLI_ARG_VALUE.test(value);
+}
+
+function assertSafeCliArgValue(kind: string, value: string | undefined): void {
+  if (value !== undefined && !isSafeCliArgValue(value)) {
+    throw new Error(`invalid ${kind}: ${JSON.stringify(value)}`);
+  }
+}
+
 type CreateCliToolsDeps = {
   nowMs: () => number;
   cliOutputDedupWindowMs: number;
@@ -52,6 +67,8 @@ export function createCliTools(deps: CreateCliToolsDeps) {
     opts: { noTools?: boolean } = {},
   ): string[] {
     const { noTools = false } = opts;
+    assertSafeCliArgValue("model", model);
+    assertSafeCliArgValue("reasoning level", reasoningLevel);
     switch (provider) {
       case "codex": {
         const args = ["codex"];
