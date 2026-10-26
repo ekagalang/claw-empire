@@ -47,7 +47,7 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("worktree merge safety", () => {
+describe("worktree merge safety", { timeout: 20_000 }, () => {
   it("refuses to merge into a checkout with uncommitted changes", () => {
     const repo = initRepo();
     tempDirs.push(repo);

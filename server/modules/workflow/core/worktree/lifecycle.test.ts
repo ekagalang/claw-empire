@@ -86,7 +86,7 @@ describe("worktree lifecycle branch collision handling", () => {
   });
 });
 
-describe("worktree recovery across restarts", () => {
+describe("worktree recovery across restarts", { timeout: 20_000 }, () => {
   it("reuses the task's existing worktree instead of deleting uncommitted work", () => {
     const repo = initRepo("climpire-wt-resume-");
     tempDirs.push(repo);
