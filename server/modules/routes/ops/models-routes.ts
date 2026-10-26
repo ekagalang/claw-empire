@@ -125,11 +125,16 @@ export function registerModelRoutes(ctx: RuntimeContext): void {
     ];
 
     try {
-      const geminiPath = execFileSync("which", ["gemini"], {
-        stdio: "pipe",
-        timeout: 5000,
-        encoding: "utf8",
-      }).trim();
+      const geminiPath =
+        execFileSync(process.platform === "win32" ? "where" : "which", ["gemini"], {
+          stdio: "pipe",
+          timeout: 5000,
+          encoding: "utf8",
+          windowsHide: true,
+        })
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(Boolean) ?? "";
       if (!geminiPath) return FALLBACK;
 
       const realPath = fs.realpathSync(geminiPath);
