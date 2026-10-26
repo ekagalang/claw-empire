@@ -4,6 +4,7 @@ import type {
   ProjectReviewPlanningDeps,
   ProjectReviewPlanningHelpers,
 } from "./types.ts";
+import { getDefaultAgentWorkspace } from "../../../../../config/agent-workspace.ts";
 
 export function createProjectReviewPlanningHelpers(deps: ProjectReviewPlanningDeps): ProjectReviewPlanningHelpers {
   const {
@@ -315,7 +316,7 @@ export function createProjectReviewPlanningHelpers(deps: ProjectReviewPlanningDe
           ].join("\n");
           try {
             const run = await runAgentOneShot(planningLeader, prompt, {
-              projectPath: projectPath || process.cwd(),
+              projectPath: projectPath || getDefaultAgentWorkspace(),
               timeoutMs: 45_000,
               noTools: true,
             });

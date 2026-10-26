@@ -4,6 +4,7 @@ import type { RuntimeContext } from "../../../../types/runtime-context.ts";
 import { buildWorkflowPackExecutionGuidance } from "../../../workflow/packs/execution-guidance.ts";
 import { resolveVideoArtifactSpecForTask } from "../../../workflow/packs/video-artifact.ts";
 import { ensureVideoPreprodRemotionBestPracticesSkill } from "../../../workflow/core/video-skill-bootstrap.ts";
+import { getDefaultAgentWorkspace } from "../../../../config/agent-workspace.ts";
 
 export function registerAgentSpawnRoute(ctx: RuntimeContext): void {
   const {
@@ -157,7 +158,7 @@ export function registerAgentSpawnRoute(ctx: RuntimeContext): void {
     });
     const taskLang = resolveLang(task.description ?? task.title);
 
-    const projectPath = task.project_path || process.cwd();
+    const projectPath = task.project_path || getDefaultAgentWorkspace();
     const worktreePath = createWorktree(projectPath, taskId, agent.name);
     if (!worktreePath) {
       appendTaskLog(

@@ -8,6 +8,7 @@ import {
 import { evaluateRemotionOnlyGateFromLogFiles } from "../packs/video-render-engine-gate.ts";
 import { readYoloModeEnabled } from "../../routes/ops/messages/decision-inbox/yolo-mode.ts";
 import { reconcileVideoRenderDelegationState } from "./video-render-delegation-state.ts";
+import { getDefaultAgentWorkspace } from "../../../config/agent-workspace.ts";
 
 type CreateReviewFinalizeToolsDeps = Record<string, any>;
 
@@ -345,7 +346,7 @@ export function createReviewFinalizeTools(deps: CreateReviewFinalizeToolsDeps) {
       const wtInfo = taskWorktrees.get(taskId) as
         | { worktreePath?: string; projectPath?: string; branchName?: string }
         | undefined;
-      const outputRoot = currentTask.project_path || wtInfo?.projectPath || process.cwd();
+      const outputRoot = currentTask.project_path || wtInfo?.projectPath || getDefaultAgentWorkspace();
       const videoArtifactSpec = resolveVideoArtifactSpecForTask(db as any, {
         project_id: currentTask.project_id,
         project_path: currentTask.project_path,

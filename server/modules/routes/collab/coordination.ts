@@ -6,6 +6,7 @@ import path from "node:path";
 import { createCrossDeptSubtaskTools } from "./coordination/cross-dept-subtasks.ts";
 import { createCrossDeptCooperationTools } from "./coordination/cross-dept-cooperation.ts";
 import { createReportRoutingTools } from "./coordination/report-routing.ts";
+import { getDefaultAgentWorkspace } from "../../../config/agent-workspace.ts";
 
 interface AgentRow {
   id: string;
@@ -92,6 +93,28 @@ export function initializeCollabCoordination(ctx: RuntimeContext): any {
    * 2. Project names: "climpire 프로젝트", "claw-kanban에서"
    * 3. Known project directories under ~/Projects
    */
+  function getTrustedProjectRoots(): string[] {
+    const homeDir = os.homedir();
+    const roots = [path.join(homeDir, "Projects"), path.join(homeDir, "projects")];
+    for (const raw of (process.env.PROJECT_PATH_ALLOWED_ROOTS ?? "").split(/[\n,;]+/)) {
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      roots.push(trimmed === "~" || trimmed.startsWith("~/") ? path.join(homeDir, trimmed.slice(1)) : trimmed);
+    }
+    const rows = db.prepare("SELECT project_path FROM projects WHERE project_path IS NOT NULL").all() as Array<{
+      project_path: string | null;
+    }>;
+    for (const row of rows) {
+      const projectPath = String(row.project_path ?? "").trim();
+      if (projectPath) roots.push(projectPath);
+    }
+    const homeResolved = path.resolve(homeDir);
+    // Never trust the filesystem root or the bare home directory as a project root.
+    return roots
+      .map((root) => path.resolve(root))
+      .filter((root) => root !== homeResolved && path.dirname(root) !== root);
+  }
+
   function detectProjectPath(message: string): string | null {
     const homeDir = os.homedir();
     const projectsDir = path.join(homeDir, "Projects");
@@ -114,22 +137,33 @@ export function initializeCollabCoordination(ctx: RuntimeContext): any {
       }
     };
 
+    // Paths written in free text (chat, messenger directives, task titles) must stay inside a
+    // registered project, PROJECT_PATH_ALLOWED_ROOTS, or ~/Projects. Otherwise a message that
+    // mentions "/" or "~/" would point permission-less agents at the whole home directory.
+    const isTrustedTextPath = (candidate: string): boolean => {
+      const resolved = path.resolve(candidate);
+      return getTrustedProjectRoots().some((root) => {
+        const rel = path.relative(root, resolved);
+        return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+      });
+    };
+
     // 1. Explicit absolute path in message
     const absMatch = message.match(/(?:^|\s)(\/[\w./-]+)/);
     if (absMatch) {
       const p = absMatch[1];
       // Check if it's a real directory
-      if (isDirectorySafe(p)) return p;
+      if (isDirectorySafe(p) && isTrustedTextPath(p)) return p;
       // Check parent directory
       const parent = path.dirname(p);
-      if (isDirectorySafe(parent)) return parent;
+      if (isDirectorySafe(parent) && isTrustedTextPath(parent)) return parent;
     }
 
     // 2. ~ path
     const tildeMatch = message.match(/~\/([\w./-]+)/);
     if (tildeMatch) {
       const expanded = path.join(homeDir, tildeMatch[1]);
-      if (isDirectorySafe(expanded)) return expanded;
+      if (isDirectorySafe(expanded) && isTrustedTextPath(expanded)) return expanded;
     }
 
     // 3. Scan known project directories and match by name
@@ -189,7 +223,7 @@ export function initializeCollabCoordination(ctx: RuntimeContext): any {
     }
 
     const detected = detectProjectPath(task.description || "") || detectProjectPath(task.title || "");
-    return detected || process.cwd();
+    return detected || getDefaultAgentWorkspace();
   }
 
   function getLatestKnownProjectPath(): string | null {
@@ -216,7 +250,7 @@ export function initializeCollabCoordination(ctx: RuntimeContext): any {
 
   function getDefaultProjectRoot(): string {
     const homeDir = os.homedir();
-    const candidates = [path.join(homeDir, "Projects"), path.join(homeDir, "projects"), process.cwd()];
+    const candidates = [path.join(homeDir, "Projects"), path.join(homeDir, "projects"), getDefaultAgentWorkspace()];
     for (const candidate of candidates) {
       try {
         if (fs.statSync(candidate).isDirectory()) return candidate;
@@ -224,7 +258,7 @@ export function initializeCollabCoordination(ctx: RuntimeContext): any {
         // Ignore inaccessible or non-existent directories.
       }
     }
-    return process.cwd();
+    return getDefaultAgentWorkspace();
   }
 
   function resolveDirectiveProjectPath(

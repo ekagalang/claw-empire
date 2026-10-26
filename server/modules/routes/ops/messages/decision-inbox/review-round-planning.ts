@@ -1,4 +1,5 @@
 import type { ReviewRoundPlanningDeps, ReviewRoundPlanningHelpers } from "./types.ts";
+import { getDefaultAgentWorkspace } from "../../../../../config/agent-workspace.ts";
 
 export function createReviewRoundPlanningHelpers(deps: ReviewRoundPlanningDeps): ReviewRoundPlanningHelpers {
   const {
@@ -129,7 +130,7 @@ export function createReviewRoundPlanningHelpers(deps: ReviewRoundPlanningDeps):
           ].join("\n");
           try {
             const run = await runAgentOneShot(planningLeader, prompt, {
-              projectPath: input.projectPath || process.cwd(),
+              projectPath: input.projectPath || getDefaultAgentWorkspace(),
               timeoutMs: 45_000,
               noTools: true,
             });

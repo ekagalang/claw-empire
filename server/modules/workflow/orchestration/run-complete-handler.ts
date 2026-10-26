@@ -6,6 +6,7 @@ import {
   resolveVideoArtifactSpecForTask,
 } from "../packs/video-artifact.ts";
 import { evaluateRemotionOnlyGateFromLogFiles } from "../packs/video-render-engine-gate.ts";
+import { getDefaultAgentWorkspace } from "../../../config/agent-workspace.ts";
 
 type CreateRunCompleteHandlerDeps = Record<string, any>;
 
@@ -122,7 +123,7 @@ export function createRunCompleteHandler(deps: CreateRunCompleteHandlerDeps) {
       });
       const candidateRelativePaths = resolveVideoArtifactRelativeCandidates(videoArtifactSpec);
       const wtInfo = taskWorktrees.get(taskId) as { worktreePath?: string; projectPath?: string } | undefined;
-      const outputRoot = task.project_path || wtInfo?.projectPath || process.cwd();
+      const outputRoot = task.project_path || wtInfo?.projectPath || getDefaultAgentWorkspace();
       const projectCandidates = candidateRelativePaths.map((relative) => path.join(outputRoot, relative));
 
       let videoArtifactReady = false;
