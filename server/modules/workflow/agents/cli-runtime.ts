@@ -2,13 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createStreamLineBuffer } from "../core/cli-tools.ts";
 
 type CliRuntimeDeps = {
   db: any;
   logsDir: string;
   buildAgentArgs: (provider: string, model?: string, reasoningLevel?: string) => string[];
   clearCliOutputDedup: (taskId: string) => void;
-  normalizeStreamChunk: (chunk: Buffer, options?: { dropCliNoise?: boolean }) => string;
+  normalizeStreamChunk: (chunk: Buffer | string, options?: { dropCliNoise?: boolean }) => string;
   shouldSkipDuplicateCliOutput: (taskId: string, stream: "stdout" | "stderr", text: string) => boolean;
   broadcast: (event: string, payload: unknown) => void;
   TASK_RUN_IDLE_TIMEOUT_MS: number;
@@ -330,23 +331,31 @@ export function createCliRuntimeTools(deps: CliRuntimeDeps) {
     child.stdin?.write(prompt);
     child.stdin?.end();
 
-    // Pipe agent output to log file AND broadcast via WebSocket
-    stdoutListener = (chunk: Buffer) => {
-      touchIdleTimer();
-      const text = normalizeStreamChunk(chunk, { dropCliNoise: true });
+    // Pipe agent output to log file AND broadcast via WebSocket, one whole line at a time.
+    const stdoutLines = createStreamLineBuffer();
+    const stderrLines = createStreamLineBuffer();
+    const emitStdout = (raw: string) => {
+      const text = normalizeStreamChunk(raw, { dropCliNoise: true });
       if (!text) return;
       if (shouldSkipDuplicateCliOutput(taskId, "stdout", text)) return;
       safeWrite(text);
       broadcast("cli_output", { task_id: taskId, stream: "stdout", data: text });
       parseAndCreateSubtasks(taskId, text);
     };
-    stderrListener = (chunk: Buffer) => {
-      touchIdleTimer();
-      const text = normalizeStreamChunk(chunk, { dropCliNoise: true });
+    const emitStderr = (raw: string) => {
+      const text = normalizeStreamChunk(raw, { dropCliNoise: true });
       if (!text) return;
       if (shouldSkipDuplicateCliOutput(taskId, "stderr", text)) return;
       safeWrite(text);
       broadcast("cli_output", { task_id: taskId, stream: "stderr", data: text });
+    };
+    stdoutListener = (chunk: Buffer) => {
+      touchIdleTimer();
+      emitStdout(stdoutLines.push(chunk));
+    };
+    stderrListener = (chunk: Buffer) => {
+      touchIdleTimer();
+      emitStderr(stderrLines.push(chunk));
     };
     child.stdout?.on("data", stdoutListener);
     child.stderr?.on("data", stderrListener);
@@ -355,6 +364,8 @@ export function createCliRuntimeTools(deps: CliRuntimeDeps) {
       finished = true;
       clearRunTimers();
       detachOutputListeners();
+      emitStdout(stdoutLines.flush());
+      emitStderr(stderrLines.flush());
       safeEnd();
       try {
         fs.unlinkSync(promptPath);

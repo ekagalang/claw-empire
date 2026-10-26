@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCliTools, isSafeCliArgValue } from "./cli-tools.ts";
+import { createCliTools, createStreamLineBuffer, isSafeCliArgValue } from "./cli-tools.ts";
 
 function createTools() {
   return createCliTools({
@@ -32,5 +32,23 @@ describe("buildAgentArgs", () => {
       expect(() => tools.buildAgentArgs("claude", model)).not.toThrow();
     }
     expect(isSafeCliArgValue("high")).toBe(true);
+  });
+});
+
+describe("createStreamLineBuffer", () => {
+  it("does not corrupt multibyte characters split across chunks", () => {
+    const buffer = createStreamLineBuffer();
+    const bytes = Buffer.from('{"text":"halo 👋 안녕"}\n', "utf8");
+    const splitAt = bytes.indexOf(0xf0) + 2; // inside the 4-byte emoji
+    const out = buffer.push(bytes.subarray(0, splitAt)) + buffer.push(bytes.subarray(splitAt)) + buffer.flush();
+    expect(out).toBe('{"text":"halo 👋 안녕"}\n');
+  });
+
+  it("only releases complete lines and flushes the remainder", () => {
+    const buffer = createStreamLineBuffer();
+    expect(buffer.push('{"type":"assi')).toBe("");
+    expect(buffer.push('stant"}\n{"type":')).toBe('{"type":"assistant"}\n');
+    expect(buffer.flush()).toBe('{"type":');
+    expect(buffer.flush()).toBe("");
   });
 });
