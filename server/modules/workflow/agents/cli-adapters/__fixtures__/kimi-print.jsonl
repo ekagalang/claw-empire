@@ -1,0 +1,3 @@
+{"role":"assistant","content":[{"type":"text","text":"Kimi analysed the repo."},{"type":"text","text":"No issues found."}]}
+{"role":"tool","content":"ignored tool output"}
+{"role":"assistant","content":"Final answer from Kimi."}

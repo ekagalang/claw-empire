@@ -1,0 +1,5 @@
+{"type":"step_start","timestamp":1,"sessionID":"ses_1","part":{"type":"step-start"}}
+{"type":"text","timestamp":2,"sessionID":"ses_1","part":{"type":"reasoning","text":"Thinking about the change."}}
+{"type":"tool_use","timestamp":3,"sessionID":"ses_1","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"README.md"}}}}
+{"type":"text","timestamp":4,"sessionID":"ses_1","part":{"type":"text","text":"Updated README with setup notes."}}
+{"type":"step_finish","timestamp":5,"sessionID":"ses_1","part":{"type":"step-finish","reason":"stop"}}

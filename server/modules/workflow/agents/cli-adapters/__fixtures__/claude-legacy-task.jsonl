@@ -1,0 +1,2 @@
+{"type":"tool_use","tool":"Task","id":"legacy-task-1","input":{"description":"Legacy sub-agent","prompt":"Do the legacy thing."}}
+{"type":"tool_result","tool":"Task","id":"legacy-task-1"}
