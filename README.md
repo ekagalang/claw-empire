@@ -692,8 +692,12 @@ On every pull request, `.github/workflows/ci.yml` runs:
 2. `pnpm install --frozen-lockfile`
 3. `pnpm run format:check`
 4. `pnpm run lint`
-5. `pnpm exec playwright install --with-deps`
-6. `pnpm run test:ci` (`test:web --coverage` + `test:api --coverage` + `test:e2e`)
+5. `pnpm run openapi:check`, type check and `pnpm run build`
+6. Unit tests: `test:web --coverage` + `test:api --coverage`
+7. `pnpm exec playwright install --with-deps chromium` (Chromium only, cached per Playwright version)
+8. `pnpm run test:e2e`
+
+A second job runs the type check, build and both unit test suites on `windows-latest`.
 
 Note: `pnpm run test:e2e` now boots an isolated `.tmp/e2e-runtime` database and clears it again after the run. Set `PW_REUSE_EXISTING_SERVER=1` only when you intentionally want to reuse an already-running local server on `8810`.
 
