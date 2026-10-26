@@ -17,6 +17,7 @@ import {
   createSessionId,
   defaultWorkflowPackLabel,
   normalizeChannelsConfig,
+  parseAllowedSenderIdsInput,
   resolveChannelsConfig,
 } from "./gateway-settings/state";
 
@@ -231,6 +232,7 @@ export default function GatewaySettingsTab({ t, form, setForm, persistSettings }
       enabled: row.session.enabled !== false,
       agentId: row.session.agentId ?? "",
       workflowPackKey: isWorkflowPackKey(row.session.workflowPackKey) ? row.session.workflowPackKey : "development",
+      allowedSenderIds: (row.session.allowedSenderIds ?? []).join(", "),
       receiveEnabled: channelsConfig[row.channel].receiveEnabled !== false,
     });
     setEditorError(null);
@@ -296,6 +298,7 @@ export default function GatewaySettingsTab({ t, form, setForm, persistSettings }
       token,
       agentId: agentId || undefined,
       workflowPackKey: editor.workflowPackKey,
+      allowedSenderIds: parseAllowedSenderIdsInput(editor.allowedSenderIds),
     };
 
     let insertIndex: number | null = null;

@@ -54,7 +54,7 @@ describe("discord receiver", () => {
       messengerChannels: {
         discord: {
           token: "dc-token",
-          sessions: [{ id: "dc-1", name: "Ops", targetId: "channel:123", enabled: true }],
+          sessions: [{ id: "dc-1", name: "Ops", targetId: "channel:123", enabled: true, allowedSenderIds: ["4001"] }],
         },
       },
       cursor: {
@@ -89,7 +89,7 @@ describe("discord receiver", () => {
               {
                 id: "101",
                 content: "hello from discord",
-                author: { id: "u-1", username: "dororong", bot: false },
+                author: { id: "4001", username: "dororong", bot: false },
               },
             ]),
             { status: 200, headers: { "content-type": "application/json" } },
@@ -206,8 +206,8 @@ describe("discord receiver", () => {
       messengerChannels: {
         discord: {
           sessions: [
-            { id: "dc-a", name: "A", targetId: "123", enabled: true, token: "token-a" },
-            { id: "dc-b", name: "B", targetId: "123", enabled: true, token: "token-b" },
+            { id: "dc-a", name: "A", targetId: "123", enabled: true, token: "token-a", allowedSenderIds: ["4011"] },
+            { id: "dc-b", name: "B", targetId: "123", enabled: true, token: "token-b", allowedSenderIds: ["4012"] },
           ],
         },
       },
@@ -242,13 +242,13 @@ describe("discord receiver", () => {
           const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
           if (auth === "Bot token-a") {
             return new Response(
-              JSON.stringify([{ id: "11", content: "from-a", author: { id: "u-a", username: "alpha", bot: false } }]),
+              JSON.stringify([{ id: "11", content: "from-a", author: { id: "4011", username: "alpha", bot: false } }]),
               { status: 200, headers: { "content-type": "application/json" } },
             );
           }
           if (auth === "Bot token-b") {
             return new Response(
-              JSON.stringify([{ id: "21", content: "from-b", author: { id: "u-b", username: "beta", bot: false } }]),
+              JSON.stringify([{ id: "21", content: "from-b", author: { id: "4012", username: "beta", bot: false } }]),
               { status: 200, headers: { "content-type": "application/json" } },
             );
           }
@@ -278,5 +278,72 @@ describe("discord receiver", () => {
     } finally {
       db.close();
     }
+  });
+});
+
+describe("discord receiver sender allowlist", () => {
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function forwardedCount(allowedSenderIds: string[] | undefined, authorId: string): Promise<number> {
+    const dbPath = createTestDb({
+      messengerChannels: {
+        discord: {
+          token: "dc-db-token",
+          sessions: [{ id: "dc-1", name: "Ops", targetId: "123", enabled: true, allowedSenderIds }],
+        },
+      },
+      cursor: { [`${buildMessengerTokenKey("discord", "dc-db-token")}:123`]: "10" },
+    });
+    const db = new DatabaseSync(dbPath);
+    try {
+      const receiver = await importReceiverModule({ DB_PATH: dbPath, INBOX_WEBHOOK_SECRET: "inbox-secret" });
+      let inboxCalls = 0;
+      const fetchMock = vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url.includes("discord.com")) {
+          return new Response(
+            JSON.stringify([{ id: "11", content: "do it", author: { id: authorId, username: "x", bot: false } }]),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        inboxCalls += 1;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      await receiver.pollDiscordReceiverOnce({
+        db,
+        status: {
+          running: true,
+          configured: false,
+          enabled: false,
+          routeCount: 0,
+          nextCursorCount: 0,
+          lastPollAt: null,
+          lastForwardAt: null,
+          lastMessageId: null,
+          lastError: null,
+        },
+        fetchImpl: fetchMock as unknown as typeof fetch,
+      });
+      return inboxCalls;
+    } finally {
+      db.close();
+    }
+  }
+
+  it("ignores every message when the session has no allowlist", async () => {
+    expect(await forwardedCount(undefined, "4001")).toBe(0);
+  });
+
+  it("forwards only allowlisted authors", async () => {
+    expect(await forwardedCount(["4001"], "4002")).toBe(0);
+    expect(await forwardedCount(["4001"], "4001")).toBe(1);
   });
 });

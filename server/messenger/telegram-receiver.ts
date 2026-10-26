@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { INBOX_WEBHOOK_SECRET, OAUTH_BASE_HOST, PORT } from "../config/runtime.ts";
 import { buildMessengerSourceWithTokenHint, buildMessengerTokenKey } from "./token-hint.ts";
 import { decryptMessengerTokenForRuntime } from "./token-crypto.ts";
+import { isSenderAllowed, parseAllowedSenderIds, warnMissingSenderAllowlist } from "./sender-allowlist.ts";
 
 const MESSENGER_SETTINGS_KEY = "messengerChannels";
 const TELEGRAM_RECEIVER_OFFSET_KEY = "telegramReceiverOffset";
@@ -14,6 +15,7 @@ type PersistedSession = {
   targetId?: unknown;
   enabled?: unknown;
   token?: unknown;
+  allowedSenderIds?: unknown;
 };
 
 type PersistedTelegramChannel = {
@@ -33,6 +35,7 @@ type TelegramUpdateMessage = {
   chat?: {
     id?: number | string;
     title?: string;
+    type?: string;
   };
   from?: {
     id?: number;
@@ -60,6 +63,7 @@ type TelegramTokenRoute = {
   tokenKey: string;
   source: string;
   allowedChatIds: Set<string>;
+  allowedSendersByChat: Map<string, Set<string>>;
 };
 
 type TelegramReceiverConfig = {
@@ -144,6 +148,7 @@ function resolveTelegramConfig(db: DatabaseSync): TelegramReceiverConfig {
   let receiveEnabled = true;
   let hasSession = false;
   const tokenToChatIds = new Map<string, Set<string>>();
+  const tokenToSendersByChat = new Map<string, Map<string, Set<string>>>();
 
   const messengerChannels = readMessengerChannels(db);
   const telegram = messengerChannels?.telegram;
@@ -178,6 +183,11 @@ function resolveTelegramConfig(db: DatabaseSync): TelegramReceiverConfig {
       const chats = tokenToChatIds.get(effectiveToken) ?? new Set<string>();
       chats.add(chatId);
       tokenToChatIds.set(effectiveToken, chats);
+      const sendersByChat = tokenToSendersByChat.get(effectiveToken) ?? new Map<string, Set<string>>();
+      const senders = sendersByChat.get(chatId) ?? new Set<string>();
+      for (const senderId of parseAllowedSenderIds(session.allowedSenderIds)) senders.add(senderId);
+      sendersByChat.set(chatId, senders);
+      tokenToSendersByChat.set(effectiveToken, sendersByChat);
     }
   }
 
@@ -190,6 +200,7 @@ function resolveTelegramConfig(db: DatabaseSync): TelegramReceiverConfig {
       tokenKey,
       source: includeSourceHint ? buildMessengerSourceWithTokenHint("telegram", tokenKey) : "telegram",
       allowedChatIds: tokenToChatIds.get(token) ?? new Set<string>(),
+      allowedSendersByChat: tokenToSendersByChat.get(token) ?? new Map<string, Set<string>>(),
     };
   });
 
@@ -307,9 +318,10 @@ async function forwardTelegramUpdate(params: {
   update: TelegramUpdate;
   source: string;
   allowedChatIds: Set<string>;
+  allowedSendersByChat?: Map<string, Set<string>>;
   fetchImpl: typeof fetch;
 }): Promise<"forwarded" | "skipped"> {
-  const { update, source, allowedChatIds, fetchImpl } = params;
+  const { update, source, allowedChatIds, allowedSendersByChat, fetchImpl } = params;
   const message = extractMessage(update);
   if (!message) return "skipped";
 
@@ -319,6 +331,16 @@ async function forwardTelegramUpdate(params: {
 
   const chatId = normalizeChatId(message.chat?.id);
   if (!chatId || !allowedChatIds.has(chatId)) {
+    return "skipped";
+  }
+
+  // Only allowlisted senders may drive agents. A private chat with no allowlist is accepted,
+  // since only its single user can write there; groups and channels need an explicit list.
+  const allowedSenders = allowedSendersByChat?.get(chatId) ?? new Set<string>();
+  if (allowedSenders.size > 0) {
+    if (!isSenderAllowed(allowedSenders, message.from?.id)) return "skipped";
+  } else if (message.chat?.type !== "private") {
+    warnMissingSenderAllowlist("telegram", chatId);
     return "skipped";
   }
 
@@ -433,6 +455,7 @@ export async function pollTelegramReceiverOnce(options: {
         update,
         source: route.source,
         allowedChatIds: route.allowedChatIds,
+        allowedSendersByChat: route.allowedSendersByChat,
         fetchImpl,
       });
       if (result === "forwarded") {

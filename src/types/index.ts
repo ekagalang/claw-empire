@@ -344,6 +344,8 @@ export interface MessengerSessionConfig {
   token?: string;
   agentId?: string;
   workflowPackKey?: WorkflowPackKey;
+  /** Messenger user IDs allowed to drive agents from this chat (Telegram/Discord). */
+  allowedSenderIds?: string[];
 }
 
 export interface MessengerChannelConfig {

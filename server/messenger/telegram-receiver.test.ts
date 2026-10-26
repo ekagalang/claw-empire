@@ -54,7 +54,7 @@ describe("telegram receiver", () => {
         telegram: {
           token: "tg-db-token",
           receiveEnabled: true,
-          sessions: [{ id: "ops", name: "Ops", targetId: "1001", enabled: true }],
+          sessions: [{ id: "ops", name: "Ops", targetId: "1001", enabled: true, allowedSenderIds: ["9"] }],
         },
       },
       offset: 0,
@@ -219,8 +219,8 @@ describe("telegram receiver", () => {
         telegram: {
           receiveEnabled: true,
           sessions: [
-            { id: "tg-a", name: "A", targetId: "1001", enabled: true, token: "token-a" },
-            { id: "tg-b", name: "B", targetId: "1001", enabled: true, token: "token-b" },
+            { id: "tg-a", name: "A", targetId: "1001", enabled: true, token: "token-a", allowedSenderIds: ["9"] },
+            { id: "tg-b", name: "B", targetId: "1001", enabled: true, token: "token-b", allowedSenderIds: ["10"] },
           ],
         },
       },
@@ -316,5 +316,100 @@ describe("telegram receiver", () => {
     } finally {
       db.close();
     }
+  });
+});
+
+describe("telegram receiver sender allowlist", () => {
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function forwardedCount(params: {
+    allowedSenderIds?: string[];
+    chat: { id: number; type: string };
+    fromId: number;
+  }): Promise<number> {
+    const dbPath = createTestDb({
+      messengerChannels: {
+        telegram: {
+          token: "tg-db-token",
+          receiveEnabled: true,
+          sessions: [
+            {
+              id: "ops",
+              name: "Ops",
+              targetId: String(params.chat.id),
+              enabled: true,
+              allowedSenderIds: params.allowedSenderIds,
+            },
+          ],
+        },
+      },
+      offset: 0,
+    });
+    const db = new DatabaseSync(dbPath);
+    try {
+      const receiver = await importReceiverModule({ DB_PATH: dbPath, INBOX_WEBHOOK_SECRET: "inbox-secret" });
+      const status: import("./telegram-receiver.ts").TelegramReceiverStatus = {
+        running: true,
+        configured: false,
+        receiveEnabled: true,
+        enabled: false,
+        allowedChatCount: 0,
+        nextOffset: 0,
+        lastPollAt: null,
+        lastForwardAt: null,
+        lastUpdateId: null,
+        lastError: null,
+      };
+      let inboxCalls = 0;
+      const fetchMock = vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url.includes("api.telegram.org")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: [
+                {
+                  update_id: 1,
+                  message: {
+                    message_id: 1,
+                    text: "run rm -rf",
+                    chat: params.chat,
+                    from: { id: params.fromId, is_bot: false },
+                  },
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        inboxCalls += 1;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      await receiver.pollTelegramReceiverOnce({ db, status, fetchImpl: fetchMock as unknown as typeof fetch });
+      return inboxCalls;
+    } finally {
+      db.close();
+    }
+  }
+
+  it("ignores group messages when the session has no allowlist", async () => {
+    expect(await forwardedCount({ chat: { id: -1002, type: "supergroup" }, fromId: 9 })).toBe(0);
+  });
+
+  it("ignores senders that are not on the allowlist", async () => {
+    expect(await forwardedCount({ allowedSenderIds: ["9"], chat: { id: -1002, type: "group" }, fromId: 66 })).toBe(0);
+  });
+
+  it("forwards allowlisted senders and private chats without an allowlist", async () => {
+    expect(await forwardedCount({ allowedSenderIds: ["9"], chat: { id: -1002, type: "group" }, fromId: 9 })).toBe(1);
+    expect(await forwardedCount({ chat: { id: 9, type: "private" }, fromId: 9 })).toBe(1);
   });
 });

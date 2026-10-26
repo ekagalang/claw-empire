@@ -30,8 +30,13 @@ export type ChatEditorState = {
   enabled: boolean;
   agentId: string;
   workflowPackKey: WorkflowPackKey;
+  allowedSenderIds: string;
   receiveEnabled: boolean;
 };
+
+export function parseAllowedSenderIdsInput(raw: string): string[] {
+  return [...new Set(raw.split(/[\s,;]+/).map((value) => value.trim()))].filter((value) => /^\d{1,32}$/.test(value));
+}
 
 export function createSessionId(channel: MessengerChannelType): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -72,6 +77,7 @@ function normalizeSession(
     token: token || undefined,
     agentId: agentId || undefined,
     workflowPackKey,
+    allowedSenderIds: parseAllowedSenderIdsInput((session.allowedSenderIds ?? []).join(",")),
   };
 }
 
@@ -114,6 +120,7 @@ export function createEditorState(channelsConfig: MessengerChannelsConfig): Chat
     enabled: true,
     agentId: "",
     workflowPackKey: "development",
+    allowedSenderIds: "",
     receiveEnabled: channelsConfig.telegram.receiveEnabled !== false,
   };
 }
