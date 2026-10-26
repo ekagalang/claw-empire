@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { decryptSecret } from "../../../../oauth/helpers.ts";
+import { stripUrlCredentials, withGitHubTokenEnv } from "../../../../security/git-credentials.ts";
 import type { WorktreeInfo } from "./lifecycle.ts";
 import {
   autoCommitWorktreePendingChanges,
@@ -265,18 +266,30 @@ export function createWorktreeMergeTools(deps: CreateWorktreeMergeToolsDeps) {
       });
 
       const token = getGitHubToken();
-      if (token) {
-        const remoteUrl = `https://x-access-token:${token}@github.com/${githubRepo}.git`;
-        execFileSync("git", ["remote", "set-url", "origin", remoteUrl], {
+      // Older versions persisted the token in the origin URL; scrub it if present.
+      try {
+        const originUrl = execFileSync("git", ["remote", "get-url", "origin"], {
           cwd: projectPath,
           stdio: "pipe",
           timeout: 5000,
-        });
+          encoding: "utf8",
+        }).trim();
+        const cleanUrl = stripUrlCredentials(originUrl);
+        if (cleanUrl !== originUrl) {
+          execFileSync("git", ["remote", "set-url", "origin", cleanUrl], {
+            cwd: projectPath,
+            stdio: "pipe",
+            timeout: 5000,
+          });
+        }
+      } catch {
+        /* no origin remote; push below reports the error */
       }
       execFileSync("git", ["push", "origin", "dev"], {
         cwd: projectPath,
         stdio: "pipe",
         timeout: 60000,
+        env: token ? withGitHubTokenEnv(token) : process.env,
       });
 
       if (token) {
