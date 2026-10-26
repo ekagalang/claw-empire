@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
 import type { DecryptedOAuthToken } from "./types.ts";
 import { createStreamTools } from "./stream-tools.ts";
+import { loadModelCatalog } from "../../../../config/model-catalog.ts";
 
 type DbLike = {
   prepare: (sql: string) => {
@@ -99,7 +100,7 @@ export function createHttpAgentTools(deps: CreateHttpAgentToolsDeps) {
   ): Promise<void> {
     const safeWrite = safeWriteOverride ?? createSafeLogStreamOps(logStream).safeWrite;
     const modelConfig = getProviderModelConfig();
-    const defaultRawModel = modelConfig.copilot?.model || "github-copilot/gpt-4o";
+    const defaultRawModel = modelConfig.copilot?.model || loadModelCatalog().defaults.copilot?.model || "";
     const autoSwap = getOAuthAutoSwapEnabled();
     const preferred = getPreferredOAuthAccounts("github").filter((a) => Boolean(a.accessToken));
     const baseAccounts = prioritizeOAuthAccount(preferred, preferredAccountId);
@@ -205,7 +206,7 @@ export function createHttpAgentTools(deps: CreateHttpAgentToolsDeps) {
   ): Promise<void> {
     const safeWrite = safeWriteOverride ?? createSafeLogStreamOps(logStream).safeWrite;
     const modelConfig = getProviderModelConfig();
-    const defaultRawModel = modelConfig.antigravity?.model || "google/antigravity-gemini-2.5-pro";
+    const defaultRawModel = modelConfig.antigravity?.model || loadModelCatalog().defaults.antigravity?.model || "";
     const autoSwap = getOAuthAutoSwapEnabled();
     const preferred = getPreferredOAuthAccounts("google_antigravity").filter((a) =>
       Boolean(a.accessToken || a.refreshToken),

@@ -1,4 +1,5 @@
 import type { UiLanguage } from "../i18n";
+import { DEFAULT_PROVIDER_MODEL_CONFIG } from "../model-defaults";
 
 export type { UiLanguage };
 
@@ -395,19 +396,7 @@ export const DEFAULT_SETTINGS: CompanySettings = {
   language: "en",
   defaultProvider: "claude",
   officeWorkflowPack: "development",
-  providerModelConfig: {
-    claude: { model: "claude-opus-4-6", subModel: "claude-sonnet-4-6" },
-    codex: {
-      model: "gpt-5.3-codex",
-      reasoningLevel: "xhigh",
-      subModel: "gpt-5.3-codex",
-      subModelReasoningLevel: "high",
-    },
-    gemini: { model: "gemini-3-pro-preview" },
-    opencode: { model: "github-copilot/claude-sonnet-4.6" },
-    copilot: { model: "github-copilot/claude-sonnet-4.6" },
-    antigravity: { model: "google/antigravity-gemini-3-pro" },
-  },
+  providerModelConfig: DEFAULT_PROVIDER_MODEL_CONFIG,
   messengerChannels: {
     telegram: { token: "", sessions: [], receiveEnabled: true },
     whatsapp: { token: "", sessions: [], receiveEnabled: false },

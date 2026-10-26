@@ -67,3 +67,4 @@ Thumbs.db
 
 # Playwright artifacts
 test-results/
+model-catalog.json

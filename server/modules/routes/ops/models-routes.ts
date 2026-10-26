@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import type { RuntimeContext } from "../../../types/runtime-context.ts";
+import { getModelCacheTtlMs, loadModelCatalog } from "../../../config/model-catalog.ts";
 
 interface CliModelInfoServer {
   slug: string;
@@ -116,13 +117,7 @@ export function registerModelRoutes(ctx: RuntimeContext): void {
   }
 
   function fetchGeminiModels(): CliModelInfoServer[] {
-    const FALLBACK: CliModelInfoServer[] = [
-      { slug: "gemini-3-pro-preview", displayName: "Gemini 3 Pro Preview" },
-      { slug: "gemini-3-flash-preview", displayName: "Gemini 3 Flash Preview" },
-      { slug: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
-      { slug: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
-      { slug: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite" },
-    ];
+    const FALLBACK: CliModelInfoServer[] = loadModelCatalog().cli.gemini ?? [];
 
     try {
       const geminiPath =
@@ -182,10 +177,20 @@ export function registerModelRoutes(ctx: RuntimeContext): void {
     return { slug, displayName: slug };
   }
 
-  function readModelCache(cacheKey: string): any | null {
+  function isFresh(loadedAt: number): boolean {
+    return Date.now() - loadedAt < getModelCacheTtlMs();
+  }
+
+  // Persisted as { savedAt, data }. Entries without savedAt were written before caches expired and
+  // are treated as stale, so old installs pick up current model lists once.
+  function readModelCache(cacheKey: string): { data: any; loadedAt: number } | null {
     try {
       const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(cacheKey) as any;
-      if (row?.value) return JSON.parse(row.value);
+      if (!row?.value) return null;
+      const parsed = JSON.parse(row.value);
+      if (parsed && typeof parsed.savedAt === "number" && parsed.data && isFresh(parsed.savedAt)) {
+        return { data: parsed.data, loadedAt: parsed.savedAt };
+      }
     } catch {
       // ignore malformed cache
     }
@@ -196,7 +201,7 @@ export function registerModelRoutes(ctx: RuntimeContext): void {
     try {
       db.prepare(
         "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      ).run(cacheKey, JSON.stringify(data));
+      ).run(cacheKey, JSON.stringify({ savedAt: Date.now(), data }));
     } catch {
       // ignore cache persistence failures
     }
@@ -206,35 +211,25 @@ export function registerModelRoutes(ctx: RuntimeContext): void {
     const refresh = req.query.refresh === "true";
 
     if (!refresh) {
-      if (cachedCliModels) {
+      if (cachedCliModels && isFresh(cachedCliModels.loadedAt)) {
         return res.json({ models: cachedCliModels.data });
       }
       const dbCached = readModelCache("cli_models_cache");
       if (dbCached) {
-        cachedCliModels = { data: dbCached, loadedAt: Date.now() };
-        return res.json({ models: dbCached });
+        cachedCliModels = dbCached;
+        return res.json({ models: dbCached.data });
       }
     }
 
+    const catalog = loadModelCatalog();
     const models: Record<string, CliModelInfoServer[]> = {
-      claude: [
-        "opus",
-        "sonnet",
-        "haiku",
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-sonnet-4-5",
-        "claude-haiku-4-5",
-      ].map(toModelInfo),
+      claude: catalog.cli.claude ?? [],
       gemini: fetchGeminiModels(),
       opencode: [],
     };
 
     const codexModels = readCodexModelsCache();
-    models.codex =
-      codexModels.length > 0
-        ? codexModels
-        : ["gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.2", "gpt-5.1-codex-mini"].map(toModelInfo);
+    models.codex = codexModels.length > 0 ? codexModels : (catalog.cli.codex ?? []);
 
     try {
       const ocModels = await fetchOpenCodeModels();
@@ -258,14 +253,14 @@ export function registerModelRoutes(ctx: RuntimeContext): void {
     const refresh = req.query.refresh === "true";
 
     if (!refresh) {
-      if (cachedModels) {
+      if (cachedModels && isFresh(cachedModels.loadedAt)) {
         return res.json({ models: cachedModels.data });
       }
       const dbCached = readModelCache("oauth_models_cache");
       if (dbCached) {
-        cachedModels = { data: dbCached, loadedAt: Date.now() };
+        cachedModels = dbCached;
         ctx.cachedModels = cachedModels;
-        return res.json({ models: dbCached });
+        return res.json({ models: dbCached.data });
       }
     }
 
@@ -282,28 +277,13 @@ export function registerModelRoutes(ctx: RuntimeContext): void {
         merged.copilot = [...new Set(merged.copilot)];
       }
 
+      const catalog = loadModelCatalog();
       if (!merged.copilot || merged.copilot.length === 0) {
-        merged.copilot = [
-          "github-copilot/claude-sonnet-4.6",
-          "github-copilot/claude-sonnet-4.5",
-          "github-copilot/claude-3.7-sonnet",
-          "github-copilot/claude-3.5-sonnet",
-          "github-copilot/gpt-4o",
-          "github-copilot/gpt-4.1",
-          "github-copilot/o4-mini",
-          "github-copilot/gemini-2.5-pro",
-        ];
+        merged.copilot = [...(catalog.oauth.copilot ?? [])];
       }
 
       if (!merged.antigravity || merged.antigravity.length === 0) {
-        merged.antigravity = [
-          "google/antigravity-gemini-3-pro",
-          "google/antigravity-gemini-3-flash",
-          "google/antigravity-claude-sonnet-4-5",
-          "google/antigravity-claude-sonnet-4-5-thinking",
-          "google/antigravity-claude-opus-4-5-thinking",
-          "google/antigravity-claude-opus-4-6-thinking",
-        ];
+        merged.antigravity = [...(catalog.oauth.antigravity ?? [])];
       }
 
       cachedModels = { data: merged, loadedAt: Date.now() };
