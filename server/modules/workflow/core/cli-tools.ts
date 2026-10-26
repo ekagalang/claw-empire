@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { getCliAdapter } from "../agents/cli-adapters/index.ts";
 
 export type CliOutputStream = "stdout" | "stderr";
 
@@ -102,60 +103,12 @@ export function createCliTools(deps: CreateCliToolsDeps) {
     const { noTools = false } = opts;
     assertSafeCliArgValue("model", model);
     assertSafeCliArgValue("reasoning level", reasoningLevel);
-    switch (provider) {
-      case "codex": {
-        const args = ["codex"];
-        if (!noTools) args.push("--enable", "multi_agent");
-        if (model) args.push("-m", model);
-        if (reasoningLevel) args.push("-c", `model_reasoning_effort="${reasoningLevel}"`);
-        if (!noTools) args.push("--yolo");
-        args.push("exec", "--json");
-        if (noTools) args.push("--sandbox", "read-only");
-        return args;
-      }
-      case "claude": {
-        const args = [
-          "claude",
-          "--dangerously-skip-permissions",
-          "--print",
-          "--verbose",
-          "--output-format=stream-json",
-          "--include-partial-messages",
-          "--max-turns",
-          "200",
-        ];
-        if (model) args.push("--model", model);
-        // Keep no-tools as a single argv token so empty value is preserved across shells.
-        if (noTools) args.push("--tools=");
-        return args;
-      }
-      case "gemini": {
-        const args = ["gemini"];
-        if (model) args.push("-m", model);
-        if (noTools) {
-          args.push("--approval-mode", "plan", "--output-format=stream-json");
-        } else {
-          args.push("--yolo", "--output-format=stream-json");
-        }
-        return args;
-      }
-      case "kimi": {
-        const args = ["kimi", "--print", "--output-format=stream-json"];
-        if (model) args.push("-m", model);
-        return args;
-      }
-      case "opencode": {
-        const args = ["opencode", "run"];
-        if (model) args.push("-m", model);
-        args.push("--format", "json");
-        return args;
-      }
-      case "copilot":
-      case "antigravity":
-        throw new Error(`${provider} uses HTTP agent (not CLI spawn)`);
-      default:
-        throw new Error(`unsupported CLI provider: ${provider}`);
+    if (provider === "copilot" || provider === "antigravity") {
+      throw new Error(`${provider} uses HTTP agent (not CLI spawn)`);
     }
+    const adapter = getCliAdapter(provider);
+    if (!adapter) throw new Error(`unsupported CLI provider: ${provider}`);
+    return adapter.buildArgs({ model, reasoningLevel, noTools });
   }
 
   function shouldSkipDuplicateCliOutput(taskId: string, stream: CliOutputStream, text: string): boolean {

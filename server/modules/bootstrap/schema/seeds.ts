@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { seedDefaultWorkflowPacks } from "./workflow-pack-seeds.ts";
+import { loadModelCatalog } from "../../../config/model-catalog.ts";
 
 type DbLike = Pick<DatabaseSync, "exec" | "prepare">;
 
@@ -89,22 +90,7 @@ export function applyDefaultSeeds(db: DbLike): void {
       insertSetting.run("oauthAutoSwap", "true");
       insertSetting.run("language", "en");
       insertSetting.run("defaultProvider", "claude");
-      insertSetting.run(
-        "providerModelConfig",
-        JSON.stringify({
-          claude: { model: "claude-opus-4-6", subModel: "claude-sonnet-4-6" },
-          codex: {
-            model: "gpt-5.3-codex",
-            reasoningLevel: "xhigh",
-            subModel: "gpt-5.3-codex",
-            subModelReasoningLevel: "high",
-          },
-          gemini: { model: "gemini-3-pro-preview" },
-          opencode: { model: "github-copilot/claude-sonnet-4.6" },
-          copilot: { model: "github-copilot/claude-sonnet-4.6" },
-          antigravity: { model: "google/antigravity-gemini-3-pro" },
-        }),
-      );
+      insertSetting.run("providerModelConfig", JSON.stringify(loadModelCatalog().defaults));
       insertSetting.run("roomThemes", JSON.stringify(defaultRoomThemes));
       console.log("[Claw-Empire] Seeded default settings");
     }

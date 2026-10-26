@@ -114,3 +114,48 @@ jobs:
         run: pnpm run test:ci
         env:
           CI: true
+
+  test-windows:
+    name: test (windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Configure git for long paths and LF checkouts
+        shell: bash
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run type check
+        run: pnpm exec tsc -p tsconfig.json --noEmit
+
+      - name: Run build
+        run: pnpm run build
+
+      # Server tests exercise real git worktrees, child-process spawning and path handling,
+      # which is where Windows behaviour differs. E2E stays on the Linux job.
+      - name: Run API tests
+        run: pnpm exec vitest run --config server/vitest.config.ts
+        env:
+          CI: true
+
+      - name: Run web tests
+        run: pnpm exec vitest run --config vitest.config.ts
+        env:
+          CI: true

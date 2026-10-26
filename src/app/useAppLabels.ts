@@ -4,6 +4,9 @@ import { normalizeLanguage, pickLang } from "../i18n";
 import type { CompanySettings, Department } from "../types";
 import type { RuntimeOs, View } from "./types";
 
+// Mirrors DEFAULT_UPDATE_REPO in server/config/runtime.ts; used before the server reports its repo.
+const DEFAULT_UPDATE_REPO = "ekagalang/claw-empire";
+
 interface UseAppLabelsParams {
   view: View;
   settings: CompanySettings;
@@ -151,10 +154,10 @@ export function useAppLabels({
         current_version: updateStatus?.current_version ?? "1.1.0",
         latest_version: updateStatus?.latest_version ?? "1.1.1-test",
         update_available: true,
-        release_url: updateStatus?.release_url ?? "https://github.com/GreenSheep01201/claw-empire/releases/latest",
+        release_url: updateStatus?.release_url ?? `https://github.com/${DEFAULT_UPDATE_REPO}/releases/latest`,
         checked_at: Date.now(),
         enabled: true,
-        repo: updateStatus?.repo ?? "GreenSheep01201/claw-empire",
+        repo: updateStatus?.repo ?? DEFAULT_UPDATE_REPO,
         error: null,
       }
     : updateStatus;
@@ -166,7 +169,7 @@ export function useAppLabels({
   );
   const updateReleaseUrl =
     effectiveUpdateStatus?.release_url ??
-    `https://github.com/${effectiveUpdateStatus?.repo ?? "GreenSheep01201/claw-empire"}/releases/latest`;
+    `https://github.com/${effectiveUpdateStatus?.repo ?? DEFAULT_UPDATE_REPO}/releases/latest`;
   const updateTitle = updateBannerVisible
     ? pickLang(uiLanguage, {
         ko: `새 버전 v${effectiveUpdateStatus?.latest_version} 사용 가능 (현재 v${effectiveUpdateStatus?.current_version}).`,

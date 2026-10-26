@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createStreamLineBuffer } from "../core/cli-tools.ts";
+import { createCliStreamState, parseCliStreamLine } from "./cli-adapters/index.ts";
 
 type CliRuntimeDeps = {
   db: any;
@@ -43,109 +44,57 @@ export function createCliRuntimeTools(deps: CliRuntimeDeps) {
   const codexThreadToSubtask = new Map<string, string>();
 
   function parseAndCreateSubtasks(taskId: string, data: string): void {
-    try {
-      const lines = data.split("\n").filter(Boolean);
-      for (const line of lines) {
-        let j: Record<string, unknown>;
+    // Line formats are read by the per-CLI adapters; this only reacts to sub-agent events.
+    const state = createCliStreamState();
+    for (const line of data.split("\n")) {
+      const events = parseCliStreamLine(line, state);
+      if (!events) continue;
+      for (const event of events) {
         try {
-          j = JSON.parse(line);
-        } catch {
-          continue;
-        }
-
-        // Detect sub-agent spawn: tool_use with tool === "Task" (Claude Code)
-        if (j.type === "tool_use" && j.tool === "Task") {
-          const toolUseId = (j.id as string) || `sub-${Date.now()}`;
-          // Check for duplicate
-          const existing = dbPrepareSubtaskByToolUseId().get(toolUseId) as { id: string } | undefined;
-          if (existing) continue;
-
-          const input = j.input as Record<string, unknown> | undefined;
-          const title = (input?.description as string) || (input?.prompt as string)?.slice(0, 100) || "Sub-task";
-
-          createSubtaskFromCli(taskId, toolUseId, title);
-        }
-
-        // Detect sub-agent completion: tool_result with tool === "Task" (Claude Code)
-        if (j.type === "tool_result" && j.tool === "Task") {
-          const toolUseId = j.id as string;
-          if (!toolUseId) continue;
-          completeSubtaskFromCli(toolUseId);
-        }
-
-        // Codex: spawn_agent started → create subtask
-        if (j.type === "item.started") {
-          const item = j.item as Record<string, unknown> | undefined;
-          if (item?.type === "collab_tool_call" && item?.tool === "spawn_agent") {
-            const itemId = (item.id as string) || `codex-spawn-${Date.now()}`;
-            const existing = dbPrepareSubtaskByToolUseId().get(itemId) as { id: string } | undefined;
-            if (!existing) {
-              const prompt = (item.prompt as string) || "Sub-agent";
-              const title = prompt
-                .split("\n")[0]
-                .replace(/^Task:\s*/, "")
-                .slice(0, 100);
-              createSubtaskFromCli(taskId, itemId, title);
+          switch (event.kind) {
+            case "subagent_started": {
+              const existing = dbPrepareSubtaskByToolUseId().get(event.id) as { id: string } | undefined;
+              if (!existing) createSubtaskFromCli(taskId, event.id, event.title);
+              break;
             }
-          }
-        }
-
-        // Codex: spawn_agent completed → save thread_id mapping
-        // Codex: close_agent completed → complete subtask via thread_id
-        if (j.type === "item.completed") {
-          const item = j.item as Record<string, unknown> | undefined;
-          if (item?.type === "collab_tool_call") {
-            if (item.tool === "spawn_agent") {
-              const itemId = item.id as string;
-              const threadIds = (item.receiver_thread_ids as string[]) || [];
-              if (itemId && threadIds[0]) {
-                codexThreadToSubtask.set(threadIds[0], itemId);
-              }
-            } else if (item.tool === "close_agent") {
-              const threadIds = (item.receiver_thread_ids as string[]) || [];
-              for (const tid of threadIds) {
+            case "subagent_finished":
+              completeSubtaskFromCli(event.id);
+              break;
+            case "subagent_thread_linked":
+              codexThreadToSubtask.set(event.threadId, event.id);
+              break;
+            case "subagent_threads_closed":
+              for (const tid of event.threadIds) {
                 const origItemId = codexThreadToSubtask.get(tid);
                 if (origItemId) {
                   completeSubtaskFromCli(origItemId);
                   codexThreadToSubtask.delete(tid);
                 }
               }
-            }
-          }
-        }
-
-        // Gemini: plan-based subtask detection from message
-        if (j.type === "message" && j.content) {
-          const content = j.content as string;
-          // Detect plan output: {"subtasks": [...]}
-          const planMatch = content.match(/\{"subtasks"\s*:\s*\[.*?\]\}/s);
-          if (planMatch) {
-            try {
-              const plan = JSON.parse(planMatch[0]) as { subtasks: { title: string }[] };
-              for (const st of plan.subtasks) {
-                const stId = `gemini-plan-${st.title.slice(0, 30).replace(/\s/g, "-")}-${Date.now()}`;
-                const existing = dbPrepareOpenSubtaskByTitle().get(taskId, st.title) as { id: string } | undefined;
+              break;
+            case "plan_subtasks":
+              for (const title of event.titles) {
+                const existing = dbPrepareOpenSubtaskByTitle().get(taskId, title) as { id: string } | undefined;
                 if (!existing) {
-                  createSubtaskFromCli(taskId, stId, st.title);
+                  const stId = `gemini-plan-${title.slice(0, 30).replace(/\s/g, "-")}-${Date.now()}`;
+                  createSubtaskFromCli(taskId, stId, title);
                 }
               }
-            } catch {
-              /* ignore malformed JSON */
+              break;
+            case "plan_subtask_done": {
+              const sub = dbPrepareOpenSubtaskToolUseIdByTitle().get(taskId, event.title) as
+                | { cli_tool_use_id: string }
+                | undefined;
+              if (sub) completeSubtaskFromCli(sub.cli_tool_use_id);
+              break;
             }
+            default:
+              break;
           }
-          // Detect completion report: {"subtask_done": "..."}
-          const doneMatch = content.match(/\{"subtask_done"\s*:\s*"(.+?)"\}/);
-          if (doneMatch) {
-            const doneTitle = doneMatch[1];
-            const sub = dbPrepareOpenSubtaskToolUseIdByTitle().get(taskId, doneTitle) as
-              | { cli_tool_use_id: string }
-              | undefined;
-            if (sub) completeSubtaskFromCli(sub.cli_tool_use_id);
-          }
+        } catch {
+          // a failed subtask write must not break output streaming
         }
       }
-    } catch {
-      // Not JSON or not parseable - ignore
     }
   }
 

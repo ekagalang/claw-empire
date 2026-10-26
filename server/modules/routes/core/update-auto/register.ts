@@ -1,5 +1,5 @@
 import type { RuntimeContext } from "../../../../types/runtime-context.ts";
-import { PKG_VERSION } from "../../../../config/runtime.ts";
+import { DEFAULT_UPDATE_REPO, PKG_VERSION } from "../../../../config/runtime.ts";
 import { isAuthenticated } from "../../../../security/auth.ts";
 import {
   isRemoteVersionNewer,
@@ -29,7 +29,7 @@ export function registerUpdateAutoRoutes(ctx: RuntimeContext): void {
   const killPidTree = __ctx.killPidTree;
 
   const UPDATE_CHECK_ENABLED = String(process.env.UPDATE_CHECK_ENABLED ?? "1").trim() !== "0";
-  const UPDATE_CHECK_REPO = String(process.env.UPDATE_CHECK_REPO ?? "GreenSheep01201/claw-empire").trim();
+  const UPDATE_CHECK_REPO = String(process.env.UPDATE_CHECK_REPO ?? DEFAULT_UPDATE_REPO).trim();
   const UPDATE_CHECK_TTL_MS = Math.max(
     60_000,
     Number(process.env.UPDATE_CHECK_TTL_MS ?? 30 * 60 * 1000) || 30 * 60 * 1000,
@@ -244,10 +244,15 @@ export function registerUpdateAutoRoutes(ctx: RuntimeContext): void {
             },
             signal: controller.signal,
           });
-          if (!response.ok) {
+          // 404 = the repo has no published release yet; that is "no update", not an error.
+          if (response.status === 404) {
+            latestVersion = null;
+          } else if (!response.ok) {
             throw new Error(`github_http_${response.status}`);
           }
-          const body = (await response.json().catch(() => null)) as { tag_name?: unknown; html_url?: unknown } | null;
+          const body = response.ok
+            ? ((await response.json().catch(() => null)) as { tag_name?: unknown; html_url?: unknown } | null)
+            : null;
           latestVersion = typeof body?.tag_name === "string" ? normalizeVersionTag(body.tag_name) : null;
           releaseUrl = typeof body?.html_url === "string" ? body.html_url : null;
         } finally {

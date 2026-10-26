@@ -1,0 +1,7 @@
+{"type":"init","timestamp":"2026-10-26T00:00:00.000Z","session_id":"gem-1","model":"gemini-2.5-pro"}
+{"type":"message","timestamp":"2026-10-26T00:00:01.000Z","role":"user","content":"Plan the work."}
+{"type":"message","timestamp":"2026-10-26T00:00:02.000Z","role":"assistant","content":"Here is the plan: {\"subtasks\": [{\"title\": \"Design schema\"}, {\"title\": \"Write API\"}]}","delta":true}
+{"type":"tool_use","timestamp":"2026-10-26T00:00:03.000Z","tool_name":"read_file","tool_id":"t1","parameters":{"absolute_path":"C:\\work\\fixture-project\\README.md"}}
+{"type":"tool_result","timestamp":"2026-10-26T00:00:04.000Z","tool_id":"t1","status":"success","output":"seed"}
+{"type":"message","timestamp":"2026-10-26T00:00:05.000Z","role":"assistant","content":"Plan ready.","delta":true}
+{"type":"result","timestamp":"2026-10-26T00:00:06.000Z","status":"success","stats":{"total_tokens":10}}
