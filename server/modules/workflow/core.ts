@@ -198,21 +198,27 @@ export function initializeWorkflowPartA(ctx: RuntimeContext): WorkflowCoreExport
   // ---------------------------------------------------------------------------
   const taskWorktrees = new Map<string, WorktreeInfo>();
 
-  const { isGitRepo, createWorktree, cleanupWorktree } = createWorktreeLifecycleTools({
+  const { isGitRepo, createWorktree, cleanupWorktree, recoverTaskWorktree } = createWorktreeLifecycleTools({
     appendTaskLog,
     taskWorktrees,
   });
 
-  const { mergeWorktree, mergeToDevAndCreatePR, rollbackTaskWorktree, getWorktreeDiffSummary, hasVisibleDiffSummary } =
-    createWorktreeMergeTools({
-      db: db as any,
-      taskWorktrees,
-      appendTaskLog,
-      cleanupWorktree,
-      resolveLang,
-      l,
-      pickL,
-    });
+  const {
+    mergeWorktree,
+    keepBranchForManualReview,
+    mergeToDevAndCreatePR,
+    rollbackTaskWorktree,
+    getWorktreeDiffSummary,
+    hasVisibleDiffSummary,
+  } = createWorktreeMergeTools({
+    db: db as any,
+    taskWorktrees,
+    appendTaskLog,
+    cleanupWorktree,
+    resolveLang,
+    l,
+    pickL,
+  });
 
   const {
     hasExplicitWarningFixRequest,
@@ -324,7 +330,9 @@ export function initializeWorkflowPartA(ctx: RuntimeContext): WorkflowCoreExport
     TASK_RUN_HARD_TIMEOUT_MS,
     taskWorktrees,
     createWorktree,
+    recoverTaskWorktree,
     mergeWorktree,
+    keepBranchForManualReview,
     mergeToDevAndCreatePR,
     cleanupWorktree,
     rollbackTaskWorktree,

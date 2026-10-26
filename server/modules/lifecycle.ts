@@ -539,7 +539,6 @@ export function startLifecycle(ctx: RuntimeContext): void {
     activeProcesses,
     stopRequestedTasks,
     killPidTree,
-    rollbackTaskWorktree,
     db,
     nowMs,
     endTaskExecutionSession,

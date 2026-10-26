@@ -6,7 +6,6 @@ interface RegisterGracefulShutdownHandlersOptions {
   activeProcesses: Map<string, ChildProcess>;
   stopRequestedTasks: Set<string>;
   killPidTree: (pid: number) => void;
-  rollbackTaskWorktree: (taskId: string, reason: string) => void;
   db: DatabaseSync;
   nowMs: () => number;
   endTaskExecutionSession: (taskId: string, reason: string) => void;
@@ -20,7 +19,6 @@ export function registerGracefulShutdownHandlers({
   activeProcesses,
   stopRequestedTasks,
   killPidTree,
-  rollbackTaskWorktree,
   db,
   nowMs,
   endTaskExecutionSession,
@@ -29,8 +27,53 @@ export function registerGracefulShutdownHandlers({
   server,
   onBeforeClose,
 }: RegisterGracefulShutdownHandlersOptions): void {
+  // Stop running agents without deleting their work: the worktree and branch are kept, and the
+  // task goes back to the inbox so a re-run resumes in the same worktree.
+  function stopActiveAgents(reason: string): void {
+    for (const [taskId, child] of activeProcesses) {
+      console.log(`[Claw-Empire] Stopping process for task ${taskId} (pid: ${child.pid})`);
+      stopRequestedTasks.add(taskId);
+      if (child.pid) {
+        try {
+          killPidTree(child.pid);
+        } catch {
+          // keep going; the process may already be gone
+        }
+      }
+      activeProcesses.delete(taskId);
+
+      try {
+        const task = db.prepare("SELECT assigned_agent_id FROM tasks WHERE id = ?").get(taskId) as
+          | {
+              assigned_agent_id: string | null;
+            }
+          | undefined;
+        if (task?.assigned_agent_id) {
+          db.prepare("UPDATE agents SET status = 'idle', current_task_id = NULL WHERE id = ?").run(
+            task.assigned_agent_id,
+          );
+        }
+        const t = nowMs();
+        const moved = db
+          .prepare("UPDATE tasks SET status = 'inbox', updated_at = ? WHERE id = ? AND status = 'in_progress'")
+          .run(t, taskId) as { changes?: number };
+        if ((moved.changes ?? 0) > 0) {
+          db.prepare("INSERT INTO task_logs (task_id, kind, message, created_at) VALUES (?, 'system', ?, ?)").run(
+            taskId,
+            `Interrupted by ${reason}; worktree and branch kept. Run the task again to resume.`,
+            t,
+          );
+        }
+      } catch {
+        // the database may already be closing
+      }
+      endTaskExecutionSession(taskId, reason);
+    }
+  }
+
   function gracefulShutdown(signal: string): void {
-    console.log(`\n[Claw-Empire] ${signal} received. Shutting down gracefully...`);
+    console.log(`
+[Claw-Empire] ${signal} received. Shutting down gracefully...`);
 
     try {
       onBeforeClose?.();
@@ -38,32 +81,7 @@ export function registerGracefulShutdownHandlers({
       // ignore pre-close cleanup failures
     }
 
-    for (const [taskId, child] of activeProcesses) {
-      console.log(`[Claw-Empire] Stopping process for task ${taskId} (pid: ${child.pid})`);
-      stopRequestedTasks.add(taskId);
-      if (child.pid) {
-        killPidTree(child.pid);
-      }
-      activeProcesses.delete(taskId);
-
-      rollbackTaskWorktree(taskId, "server_shutdown");
-
-      const task = db.prepare("SELECT assigned_agent_id FROM tasks WHERE id = ?").get(taskId) as
-        | {
-            assigned_agent_id: string | null;
-          }
-        | undefined;
-      if (task?.assigned_agent_id) {
-        db.prepare("UPDATE agents SET status = 'idle', current_task_id = NULL WHERE id = ?").run(
-          task.assigned_agent_id,
-        );
-      }
-      db.prepare("UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE id = ? AND status = 'in_progress'").run(
-        nowMs(),
-        taskId,
-      );
-      endTaskExecutionSession(taskId, "server_shutdown");
-    }
+    stopActiveAgents("server shutdown");
 
     for (const ws of wsClients) {
       ws.close(1001, "Server shutting down");
@@ -92,6 +110,8 @@ export function registerGracefulShutdownHandlers({
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
   process.once("SIGUSR2", () => {
+    // nodemon restart: without this, detached agent CLIs kept running as orphans.
+    stopActiveAgents("server restart");
     try {
       db.close();
     } catch {
