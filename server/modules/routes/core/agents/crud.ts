@@ -8,6 +8,7 @@ import {
   type WorkflowPackKey,
 } from "../../../workflow/packs/definitions.ts";
 import { resolveConstrainedAgentScopeForTask } from "../tasks/execution-run-auto-assign.ts";
+import { isSafeCliArgValue } from "../../../workflow/core/cli-tools.ts";
 import { getDepartmentForPack, parseWorkflowPackKeyInput } from "../../../workflow/packs/department-scope.ts";
 
 export function registerAgentCrudRoutes(ctx: RuntimeContext): void {
@@ -505,7 +506,7 @@ export function registerAgentCrudRoutes(ctx: RuntimeContext): void {
       if (body.cli_model === "" || typeof body.cli_model === "undefined") {
         body.cli_model = null;
       }
-      if (body.cli_model !== null && typeof body.cli_model !== "string") {
+      if (body.cli_model !== null && (typeof body.cli_model !== "string" || !isSafeCliArgValue(body.cli_model))) {
         return res.status(400).json({ error: "invalid_cli_model" });
       }
       if (body.cli_model && !supportsCliModelOverride) {
@@ -517,7 +518,10 @@ export function registerAgentCrudRoutes(ctx: RuntimeContext): void {
       if (body.cli_reasoning_level === "" || typeof body.cli_reasoning_level === "undefined") {
         body.cli_reasoning_level = null;
       }
-      if (body.cli_reasoning_level !== null && typeof body.cli_reasoning_level !== "string") {
+      if (
+        body.cli_reasoning_level !== null &&
+        (typeof body.cli_reasoning_level !== "string" || !isSafeCliArgValue(body.cli_reasoning_level))
+      ) {
         return res.status(400).json({ error: "invalid_cli_reasoning_level" });
       }
       if (body.cli_reasoning_level && !supportsCliReasoningOverride) {

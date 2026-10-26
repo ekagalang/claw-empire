@@ -21,3 +21,5 @@ try {
 
 process.env.DB_PATH = dbPath;
 process.env.LOGS_DIR = logsDir;
+// Keep agent fallback workspaces out of the user's home directory during tests.
+process.env.AGENT_DEFAULT_WORKSPACE = path.join(runtimeDir, `workspace-${workerSuffix}`);

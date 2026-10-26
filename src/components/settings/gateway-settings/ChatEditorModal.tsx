@@ -259,6 +259,41 @@ export default function ChatEditorModal({
           />
         </div>
 
+        {(editor.channel === "telegram" || editor.channel === "discord") && (
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">
+              {t({
+                ko: "허용된 발신자 ID",
+                en: "Allowed sender IDs",
+                ja: "許可する送信者 ID",
+                zh: "允许的发送者 ID",
+              })}
+            </label>
+            <input
+              type="text"
+              value={editor.allowedSenderIds}
+              onChange={(e) => setEditor((prev) => ({ ...prev, allowedSenderIds: e.target.value }))}
+              placeholder="123456789, 987654321"
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+            <div className="mt-1 text-[11px] text-slate-500">
+              {editor.channel === "telegram"
+                ? t({
+                    ko: "그룹에서는 이 목록의 사용자만 에이전트를 움직일 수 있습니다. 비어 있으면 1:1 채팅만 허용됩니다.",
+                    en: "In groups, only these user IDs can drive agents. When empty, only a private 1:1 chat is accepted.",
+                    ja: "グループではこの一覧のユーザーだけがエージェントを動かせます。空の場合は1対1チャットのみ許可されます。",
+                    zh: "在群组中只有这些用户可以驱动代理。为空时仅接受一对一私聊。",
+                  })
+                : t({
+                    ko: "이 목록의 Discord 사용자 ID만 에이전트를 움직일 수 있습니다. 비어 있으면 모든 메시지를 무시합니다.",
+                    en: "Only these Discord user IDs can drive agents. When empty, every message is ignored.",
+                    ja: "この一覧の Discord ユーザー ID だけがエージェントを動かせます。空の場合はすべて無視されます。",
+                    zh: "只有这些 Discord 用户 ID 可以驱动代理。为空时忽略所有消息。",
+                  })}
+            </div>
+          </div>
+        )}
+
         <div>
           <label className="block text-xs text-slate-400 mb-1">
             {t({ ko: "워크플로우 팩", en: "Workflow Pack", ja: "ワークフローパック", zh: "工作流包" })}

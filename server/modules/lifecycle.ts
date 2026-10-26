@@ -3,7 +3,8 @@ import type { IncomingMessage } from "node:http";
 import type { WebSocket as WsSocket } from "ws";
 import fs from "node:fs";
 import path from "path";
-import { HOST, PKG_VERSION, PORT } from "../config/runtime.ts";
+import { API_AUTH_TOKEN, HOST, PKG_VERSION, PORT } from "../config/runtime.ts";
+import { isLoopbackHostname } from "../security/auth.ts";
 import { notifyTaskStatus } from "../gateway/client.ts";
 import { startDiscordReceiver } from "../messenger/discord-receiver.ts";
 import { startTelegramReceiver } from "../messenger/telegram-receiver.ts";
@@ -473,6 +474,12 @@ export function startLifecycle(ctx: RuntimeContext): void {
     } else {
       console.log(`[Claw-Empire] mode: development (UI served by Vite on separate port)`);
     }
+    if (!isLoopbackHostname(HOST) && !API_AUTH_TOKEN) {
+      console.warn(
+        `[Claw-Empire] HOST=${HOST} is not loopback and API_AUTH_TOKEN is unset: remote clients cannot sign in. ` +
+          "Set API_AUTH_TOKEN to allow authenticated remote access.",
+      );
+    }
   });
 
   // Background token refresh: check every 5 minutes for tokens expiring within 5 minutes
@@ -532,7 +539,6 @@ export function startLifecycle(ctx: RuntimeContext): void {
     activeProcesses,
     stopRequestedTasks,
     killPidTree,
-    rollbackTaskWorktree,
     db,
     nowMs,
     endTaskExecutionSession,

@@ -13,6 +13,7 @@ import type { Lang } from "../../../types/lang.ts";
 import type { DelegationOptions } from "./project-resolution.ts";
 import { normalizeAgentReply, shouldPreserveStructuredFallback } from "./direct-chat-intent-utils.ts";
 import type { AgentRow, DirectChatDeps } from "./direct-chat-types.ts";
+import { getDefaultAgentWorkspace } from "../../../config/agent-workspace.ts";
 
 type DirectReplyRuntimeDeps = Pick<
   DirectChatDeps,
@@ -156,7 +157,7 @@ export function createDirectReplyRuntime(deps: DirectReplyRuntimeDeps) {
 
       try {
         const run = await deps.runAgentOneShot(agent, prompt, {
-          projectPath: process.cwd(),
+          projectPath: getDefaultAgentWorkspace(),
           rawOutput: true,
           noTools: true,
         });
@@ -190,7 +191,7 @@ export function createDirectReplyRuntime(deps: DirectReplyRuntimeDeps) {
 
     try {
       const run = await deps.runAgentOneShot(agent, prompt, {
-        projectPath: process.cwd(),
+        projectPath: getDefaultAgentWorkspace(),
         rawOutput: true,
         noTools: true,
       });
@@ -274,7 +275,8 @@ export function createDirectReplyRuntime(deps: DirectReplyRuntimeDeps) {
                 | undefined)
             : undefined;
           const detectedPath = deps.detectProjectPath(ceoMessage);
-          const projectPath = detectedPath || (activeTask ? deps.resolveProjectPath(activeTask) : process.cwd());
+          const projectPath =
+            detectedPath || (activeTask ? deps.resolveProjectPath(activeTask) : getDefaultAgentWorkspace());
 
           const built = deps.buildDirectReplyPrompt(agent, ceoMessage, messageType);
 

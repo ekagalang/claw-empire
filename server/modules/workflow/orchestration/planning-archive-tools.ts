@@ -1,3 +1,4 @@
+import { getDefaultAgentWorkspace } from "../../../config/agent-workspace.ts";
 type CreatePlanningArchiveToolsDeps = Record<string, any>;
 
 export function createPlanningArchiveTools(deps: CreatePlanningArchiveToolsDeps) {
@@ -196,7 +197,7 @@ export function createPlanningArchiveTools(deps: CreatePlanningArchiveToolsDeps)
       });
 
       const lang = resolveLang(rootTask.description ?? rootTask.title);
-      const projectPath = rootTask.project_path || process.cwd();
+      const projectPath = rootTask.project_path || getDefaultAgentWorkspace();
       const evidenceBlock = entries
         .map((entry, idx) =>
           [

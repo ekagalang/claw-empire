@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { decryptSecret } from "../../../../oauth/helpers.ts";
+import { stripUrlCredentials, withGitHubTokenEnv } from "../../../../security/git-credentials.ts";
 import type { WorktreeInfo } from "./lifecycle.ts";
 import {
   autoCommitWorktreePendingChanges,
@@ -25,8 +26,41 @@ type CreateWorktreeMergeToolsDeps = {
   pickL: (...args: any[]) => string;
 };
 
+function projectCheckoutDirtyFiles(projectPath: string): string[] {
+  try {
+    return execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+      cwd: projectPath,
+      stdio: "pipe",
+      timeout: 10000,
+    })
+      .toString()
+      .split(/\r?\n/)
+      .map((line) => line.slice(3).trim())
+      .filter((file) => file && !file.startsWith(".climpire-worktrees"));
+  } catch {
+    return [];
+  }
+}
+
 export function createWorktreeMergeTools(deps: CreateWorktreeMergeToolsDeps) {
   const { db, taskWorktrees, appendTaskLog, cleanupWorktree, resolveLang, l, pickL } = deps;
+
+  /**
+   * Manual-review mode: commit the agent's pending changes on its branch and keep the branch
+   * and worktree, without touching the project checkout or any remote.
+   */
+  function keepBranchForManualReview(taskId: string): { success: boolean; message: string } {
+    const info = taskWorktrees.get(taskId);
+    if (!info) return { success: false, message: "No worktree found for this task" };
+    const autoCommit = autoCommitWorktreePendingChanges(taskId, info, appendTaskLog);
+    if (autoCommit.error) {
+      return { success: false, message: `Failed to commit pending changes on ${info.branchName}: ${autoCommit.error}` };
+    }
+    return {
+      success: true,
+      message: `Branch ${info.branchName} kept for review. Merge it yourself with: git merge --no-ff ${info.branchName}`,
+    };
+  }
 
   function mergeWorktree(
     projectPath: string,
@@ -88,6 +122,18 @@ export function createWorktreeMergeTools(deps: CreateWorktreeMergeToolsDeps) {
       })
         .toString()
         .trim();
+
+      // Never merge into a checkout with uncommitted tracked changes: a conflict would leave the
+      // user's own edits mixed into a half-finished merge, and `merge --abort` could discard them.
+      const dirtyCheckout = projectCheckoutDirtyFiles(projectPath);
+      if (dirtyCheckout.length > 0) {
+        return {
+          success: false,
+          message: `Project checkout has uncommitted changes (${dirtyCheckout.slice(0, 5).join(", ")}${
+            dirtyCheckout.length > 5 ? ", ..." : ""
+          }); branch ${info.branchName} was kept for a manual merge.`,
+        };
+      }
 
       try {
         const diffCheck = execFileSync("git", ["diff", `${currentBranch}...${info.branchName}`, "--stat"], {
@@ -265,18 +311,30 @@ export function createWorktreeMergeTools(deps: CreateWorktreeMergeToolsDeps) {
       });
 
       const token = getGitHubToken();
-      if (token) {
-        const remoteUrl = `https://x-access-token:${token}@github.com/${githubRepo}.git`;
-        execFileSync("git", ["remote", "set-url", "origin", remoteUrl], {
+      // Older versions persisted the token in the origin URL; scrub it if present.
+      try {
+        const originUrl = execFileSync("git", ["remote", "get-url", "origin"], {
           cwd: projectPath,
           stdio: "pipe",
           timeout: 5000,
-        });
+          encoding: "utf8",
+        }).trim();
+        const cleanUrl = stripUrlCredentials(originUrl);
+        if (cleanUrl !== originUrl) {
+          execFileSync("git", ["remote", "set-url", "origin", cleanUrl], {
+            cwd: projectPath,
+            stdio: "pipe",
+            timeout: 5000,
+          });
+        }
+      } catch {
+        /* no origin remote; push below reports the error */
       }
       execFileSync("git", ["push", "origin", "dev"], {
         cwd: projectPath,
         stdio: "pipe",
         timeout: 60000,
+        env: token ? withGitHubTokenEnv(token) : process.env,
       });
 
       if (token) {
@@ -427,6 +485,7 @@ export function createWorktreeMergeTools(deps: CreateWorktreeMergeToolsDeps) {
 
   return {
     mergeWorktree,
+    keepBranchForManualReview,
     mergeToDevAndCreatePR,
     rollbackTaskWorktree,
     getWorktreeDiffSummary,

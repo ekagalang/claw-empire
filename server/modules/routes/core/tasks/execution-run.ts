@@ -11,6 +11,7 @@ import {
   consumeInterruptPrompts,
   loadPendingInterruptPrompts,
 } from "../../../workflow/core/interrupt-injection-tools.ts";
+import { getDefaultAgentWorkspace } from "../../../../config/agent-workspace.ts";
 
 export type TaskRunRouteDeps = Pick<
   RuntimeContext,
@@ -299,7 +300,8 @@ export function registerTaskRunRoute(deps: TaskRunRouteDeps): void {
     const pendingInterruptPrompts = loadPendingInterruptPrompts(db as any, id, executionSession.sessionId);
     const interruptPromptBlock = buildInterruptPromptBlock(pendingInterruptPrompts);
 
-    const projectPath = resolveProjectPath(task) || (req.body?.project_path as string | undefined) || process.cwd();
+    const projectPath =
+      resolveProjectPath(task) || (req.body?.project_path as string | undefined) || getDefaultAgentWorkspace();
     const logPath = path.join(logsDir, `${id}.log`);
 
     const worktreePath = createWorktree(projectPath, id, agent.name);

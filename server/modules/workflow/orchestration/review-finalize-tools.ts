@@ -8,6 +8,8 @@ import {
 import { evaluateRemotionOnlyGateFromLogFiles } from "../packs/video-render-engine-gate.ts";
 import { readYoloModeEnabled } from "../../routes/ops/messages/decision-inbox/yolo-mode.ts";
 import { reconcileVideoRenderDelegationState } from "./video-render-delegation-state.ts";
+import { getDefaultAgentWorkspace } from "../../../config/agent-workspace.ts";
+import { AUTO_MERGE_ON_APPROVAL } from "../../../config/runtime.ts";
 
 type CreateReviewFinalizeToolsDeps = Record<string, any>;
 
@@ -27,6 +29,8 @@ export function createReviewFinalizeTools(deps: CreateReviewFinalizeToolsDeps) {
     notifyCeo,
     taskWorktrees,
     mergeToDevAndCreatePR,
+    recoverTaskWorktree,
+    keepBranchForManualReview,
     mergeWorktree,
     cleanupWorktree,
     findTeamLeader,
@@ -345,7 +349,7 @@ export function createReviewFinalizeTools(deps: CreateReviewFinalizeToolsDeps) {
       const wtInfo = taskWorktrees.get(taskId) as
         | { worktreePath?: string; projectPath?: string; branchName?: string }
         | undefined;
-      const outputRoot = currentTask.project_path || wtInfo?.projectPath || process.cwd();
+      const outputRoot = currentTask.project_path || wtInfo?.projectPath || getDefaultAgentWorkspace();
       const videoArtifactSpec = resolveVideoArtifactSpecForTask(db as any, {
         project_id: currentTask.project_id,
         project_path: currentTask.project_path,
@@ -523,10 +527,37 @@ export function createReviewFinalizeTools(deps: CreateReviewFinalizeToolsDeps) {
         | undefined;
       if (!latestTask || latestTask.status !== "review") return;
 
-      // If task has a worktree, merge the branch back before marking done
-      const wtInfo = taskWorktrees.get(taskId);
+      // If task has a worktree, merge the branch back before marking done. The in-memory map is
+      // empty after a restart, so look the worktree up from git before concluding there is none.
+      const projectPathForRecovery = String(currentTask.project_path ?? "").trim();
+      const wtInfo =
+        taskWorktrees.get(taskId) ??
+        (projectPathForRecovery ? recoverTaskWorktree(projectPathForRecovery, taskId) : null) ??
+        undefined;
       let mergeNote = "";
-      if (wtInfo) {
+      if (wtInfo && !AUTO_MERGE_ON_APPROVAL) {
+        const keepResult = keepBranchForManualReview(taskId);
+        appendTaskLog(taskId, "system", `Manual review: ${keepResult.message}`);
+        mergeNote = keepResult.success
+          ? pickL(
+              l(
+                [` (브랜치 ${wtInfo.branchName} 검토 대기)`],
+                [` (branch ${wtInfo.branchName} kept for your review)`],
+                [` (ブランチ ${wtInfo.branchName} をレビュー待ちで保持)`],
+                [`（分支 ${wtInfo.branchName} 已保留待审查）`],
+              ),
+              lang,
+            )
+          : pickL(
+              l(
+                [` (브랜치 ${wtInfo.branchName} 커밋 실패 - 확인 필요)`],
+                [` (could not commit branch ${wtInfo.branchName} - please check)`],
+                [` (ブランチ ${wtInfo.branchName} のコミット失敗 - 確認が必要)`],
+                [`（分支 ${wtInfo.branchName} 提交失败 - 需要检查）`],
+              ),
+              lang,
+            );
+      } else if (wtInfo) {
         // Check if this is a GitHub project → merge to dev + PR flow
         const projectRow = currentTask.project_id
           ? (db.prepare("SELECT github_repo FROM projects WHERE id = ?").get(currentTask.project_id) as

@@ -85,3 +85,36 @@ describe("worktree lifecycle branch collision handling", () => {
     runGit(repo, ["branch", "-D", baseBranch]);
   });
 });
+
+describe("worktree recovery across restarts", { timeout: 20_000 }, () => {
+  it("reuses the task's existing worktree instead of deleting uncommitted work", () => {
+    const repo = initRepo("climpire-wt-resume-");
+    tempDirs.push(repo);
+    const taskId = "resume01-0000-0000-0000-000000000000";
+
+    const first = createWorktreeLifecycleTools({ appendTaskLog: () => {}, taskWorktrees: new Map() });
+    const worktreePath = first.createWorktree(repo, taskId, "Tester");
+    expect(worktreePath).toBeTruthy();
+    fs.writeFileSync(path.join(String(worktreePath), "work.txt"), "uncommitted agent work\n", "utf8");
+
+    // Simulate a server restart: the in-memory task→worktree map is empty.
+    const taskWorktrees = new Map();
+    const restarted = createWorktreeLifecycleTools({ appendTaskLog: () => {}, taskWorktrees });
+    const recovered = restarted.recoverTaskWorktree(repo, taskId);
+    expect(recovered?.branchName).toBe("climpire/resume01");
+    expect(fs.realpathSync.native(String(recovered?.worktreePath))).toBe(fs.realpathSync.native(String(worktreePath)));
+
+    const again = restarted.createWorktree(repo, taskId, "Tester");
+    expect(fs.realpathSync.native(String(again))).toBe(fs.realpathSync.native(String(worktreePath)));
+    expect(fs.readFileSync(path.join(String(again), "work.txt"), "utf8")).toContain("uncommitted agent work");
+
+    restarted.cleanupWorktree(repo, taskId);
+  });
+
+  it("returns null when the task has no worktree", () => {
+    const repo = initRepo("climpire-wt-none-");
+    tempDirs.push(repo);
+    const tools = createWorktreeLifecycleTools({ appendTaskLog: () => {}, taskWorktrees: new Map() });
+    expect(tools.recoverTaskWorktree(repo, "nothere0-0000-0000-0000-000000000000")).toBeNull();
+  });
+});

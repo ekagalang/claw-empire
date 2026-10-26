@@ -71,10 +71,29 @@ export const OPENCLAW_CONFIG_PATH = normalizePathEnv(process.env.OPENCLAW_CONFIG
 export const API_AUTH_TOKEN = normalizeSecret(process.env.API_AUTH_TOKEN);
 export const INBOX_WEBHOOK_SECRET = normalizeSecret(process.env.INBOX_WEBHOOK_SECRET);
 export const SESSION_AUTH_TOKEN = API_AUTH_TOKEN || randomBytes(32).toString("hex");
-export const ALLOWED_ORIGIN_SUFFIXES = (process.env.ALLOWED_ORIGIN_SUFFIXES ?? ".ts.net")
+// When a task is approved, merge its branch into the project's checked-out branch (and, for
+// GitHub projects, push dev and open a PR). Off by default: the branch is kept for manual review
+// so unreviewed agent output never lands in the user's working copy or on a remote by itself.
+export const AUTO_MERGE_ON_APPROVAL = ["1", "true", "yes"].includes(
+  String(process.env.AUTO_MERGE_ON_APPROVAL ?? "")
+    .trim()
+    .toLowerCase(),
+);
+
+// Empty by default: a bare ".ts.net" suffix would trust every Tailscale Funnel host on the
+// internet. Set it to your own tailnet (e.g. ".my-tailnet.ts.net") to allow remote origins.
+export const ALLOWED_ORIGIN_SUFFIXES = (process.env.ALLOWED_ORIGIN_SUFFIXES ?? "")
   .split(",")
   .map((v) => v.trim())
   .filter(Boolean);
+// Loopback origins are trusted only on the app's own ports (API, Vite dev UI, e2e UI).
+export const ALLOWED_LOOPBACK_PORTS = [
+  ...new Set(
+    [PORT, 8800, 8810, ...(process.env.ALLOWED_LOOPBACK_PORTS ?? "").split(",")]
+      .map((v) => Number(String(v).trim()))
+      .filter((v) => Number.isInteger(v) && v > 0),
+  ),
+];
 export const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "")
   .split(",")
   .map((v) => v.trim())

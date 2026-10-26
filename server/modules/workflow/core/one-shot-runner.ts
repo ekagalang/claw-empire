@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import type { AgentRow, OneShotRunOptions, OneShotRunResult } from "./conversation-types.ts";
+import { getDefaultAgentWorkspace } from "../../../config/agent-workspace.ts";
 
 type CreateOneShotRunnerDeps = {
   logsDir: string;
@@ -85,7 +86,7 @@ export function createOneShotRunner(deps: CreateOneShotRunnerDeps) {
   ): Promise<OneShotRunResult> {
     const provider = agent.cli_provider || "claude";
     const timeoutMs = opts.timeoutMs ?? 180_000;
-    const projectPath = opts.projectPath || process.cwd();
+    const projectPath = opts.projectPath || getDefaultAgentWorkspace();
     const streamTaskId = opts.streamTaskId ?? null;
     const noTools = opts.noTools === true;
     const runId = `meeting-${agent.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

@@ -122,6 +122,59 @@ export function createWorktreeLifecycleTools(deps: CreateWorktreeLifecycleToolsD
     }
   }
 
+  /**
+   * Find this task's worktree from git itself, so the task→worktree mapping survives restarts
+   * (taskWorktrees only lives in memory).
+   */
+  function findTaskWorktree(projectPath: string, taskId: string): WorktreeInfo | null {
+    if (!isGitRepo(projectPath)) return null;
+    const shortId = taskId.slice(0, 8);
+    let porcelain = "";
+    try {
+      porcelain = execFileSync("git", ["worktree", "list", "--porcelain"], {
+        cwd: projectPath,
+        stdio: "pipe",
+        timeout: 5000,
+      }).toString();
+    } catch {
+      return null;
+    }
+    const branchPattern = new RegExp(`^refs/heads/(climpire/${shortId}(?:-\\d+)?)$`);
+    const dirPattern = new RegExp(`^${shortId}(?:-\\d+)?$`);
+    // realpath normalizes Windows 8.3 short names and casing so git's paths compare equal.
+    const canonical = (p: string): string => {
+      try {
+        const real = fs.realpathSync.native(p);
+        return process.platform === "win32" ? real.toLowerCase() : real;
+      } catch {
+        return "";
+      }
+    };
+    const worktreeBase = canonical(path.resolve(projectPath, ".climpire-worktrees"));
+    if (!worktreeBase) return null;
+    for (const block of porcelain.split(/\r?\n\r?\n/)) {
+      const worktreeLine = block.match(/^worktree (.+)$/m)?.[1]?.trim();
+      const branchRef = block.match(/^branch (.+)$/m)?.[1]?.trim();
+      const branchName = branchRef?.match(branchPattern)?.[1];
+      if (!worktreeLine || !branchName) continue;
+      const worktreePath = path.resolve(worktreeLine);
+      // Only worktrees this app created for the task (<project>/.climpire-worktrees/<id8>[-n]).
+      const realWorktree = canonical(worktreePath);
+      if (!realWorktree || path.dirname(realWorktree) !== worktreeBase) continue;
+      if (!dirPattern.test(path.basename(worktreePath))) continue;
+      return { worktreePath, branchName, projectPath };
+    }
+    return null;
+  }
+
+  function recoverTaskWorktree(projectPath: string, taskId: string): WorktreeInfo | null {
+    const known = taskWorktrees.get(taskId);
+    if (known) return known;
+    const found = findTaskWorktree(projectPath, taskId);
+    if (found) taskWorktrees.set(taskId, found);
+    return found;
+  }
+
   function createWorktree(projectPath: string, taskId: string, agentName: string, baseBranch?: string): string | null {
     if (!ensureWorktreeBootstrapRepo(projectPath, taskId)) return null;
     if (!isGitRepo(projectPath)) return null;
@@ -130,6 +183,16 @@ export function createWorktreeLifecycleTools(deps: CreateWorktreeLifecycleToolsD
     const branchName = `climpire/${shortId}`;
     const worktreeBase = path.join(projectPath, ".climpire-worktrees");
     const worktreePath = path.join(worktreeBase, shortId);
+
+    // Resume in the task's existing worktree (e.g. after a restart or re-run) instead of
+    // deleting it, which used to discard the agent's uncommitted work.
+    const existing = recoverTaskWorktree(projectPath, taskId);
+    if (existing && fs.existsSync(existing.worktreePath)) {
+      console.log(
+        `[Claw-Empire] Reusing worktree for task ${shortId}: ${existing.worktreePath} (branch: ${existing.branchName}, agent: ${agentName})`,
+      );
+      return existing.worktreePath;
+    }
 
     try {
       fs.mkdirSync(worktreeBase, { recursive: true });
@@ -273,5 +336,6 @@ export function createWorktreeLifecycleTools(deps: CreateWorktreeLifecycleToolsD
     isGitRepo,
     createWorktree,
     cleanupWorktree,
+    recoverTaskWorktree,
   };
 }

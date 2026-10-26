@@ -1,7 +1,55 @@
 import os from "node:os";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 export type CliOutputStream = "stdout" | "stderr";
+
+// On Windows the CLI shims (*.cmd) are spawned through cmd.exe, which re-parses the joined
+// argv. Model ids and reasoning levels come from user-editable settings, so they are limited
+// to characters that cmd.exe and POSIX shells treat literally, and may not start with "-".
+const SAFE_CLI_ARG_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:/@+[\]-]{0,199}$/;
+
+const STREAM_LINE_BUFFER_MAX_PENDING = 64 * 1024;
+
+/**
+ * Re-chunks a child process stream into whole lines. Raw `data` chunks can split a multibyte
+ * UTF-8 character (corrupting non-ASCII text and emoji) or a JSON line (which the stream-json
+ * parsers then silently drop). push() returns only complete lines; flush() returns the rest.
+ */
+export function createStreamLineBuffer() {
+  const decoder = new StringDecoder("utf8");
+  let pending = "";
+  return {
+    push(chunk: Buffer | string): string {
+      pending += typeof chunk === "string" ? chunk : decoder.write(chunk);
+      const lastNewline = pending.lastIndexOf("\n");
+      if (lastNewline < 0) {
+        if (pending.length < STREAM_LINE_BUFFER_MAX_PENDING) return "";
+        const out = pending;
+        pending = "";
+        return out;
+      }
+      const out = pending.slice(0, lastNewline + 1);
+      pending = pending.slice(lastNewline + 1);
+      return out;
+    },
+    flush(): string {
+      const out = pending + decoder.end();
+      pending = "";
+      return out;
+    },
+  };
+}
+
+export function isSafeCliArgValue(value: string): boolean {
+  return SAFE_CLI_ARG_VALUE.test(value);
+}
+
+function assertSafeCliArgValue(kind: string, value: string | undefined): void {
+  if (value !== undefined && !isSafeCliArgValue(value)) {
+    throw new Error(`invalid ${kind}: ${JSON.stringify(value)}`);
+  }
+}
 
 type CreateCliToolsDeps = {
   nowMs: () => number;
@@ -52,6 +100,8 @@ export function createCliTools(deps: CreateCliToolsDeps) {
     opts: { noTools?: boolean } = {},
   ): string[] {
     const { noTools = false } = opts;
+    assertSafeCliArgValue("model", model);
+    assertSafeCliArgValue("reasoning level", reasoningLevel);
     switch (provider) {
       case "codex": {
         const args = ["codex"];

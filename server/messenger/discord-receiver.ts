@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { INBOX_WEBHOOK_SECRET, OAUTH_BASE_HOST, PORT } from "../config/runtime.ts";
 import { buildMessengerSourceWithTokenHint, buildMessengerTokenKey } from "./token-hint.ts";
 import { decryptMessengerTokenForRuntime } from "./token-crypto.ts";
+import { isSenderAllowed, parseAllowedSenderIds, warnMissingSenderAllowlist } from "./sender-allowlist.ts";
 
 const MESSENGER_SETTINGS_KEY = "messengerChannels";
 const DISCORD_RECEIVER_CURSOR_KEY = "discordReceiverCursor";
@@ -13,6 +14,7 @@ type PersistedSession = {
   targetId?: unknown;
   enabled?: unknown;
   token?: unknown;
+  allowedSenderIds?: unknown;
 };
 
 type PersistedDiscordChannel = {
@@ -43,6 +45,7 @@ type DiscordRoute = {
   token: string;
   source: string;
   channelId: string;
+  allowedSenderIds: Set<string>;
 };
 
 type DiscordReceiverConfig = {
@@ -142,6 +145,7 @@ function resolveDiscordConfig(db: DatabaseSync): DiscordReceiverConfig {
   let channelToken = "";
   let hasSession = false;
   const tokenToChannels = new Map<string, Set<string>>();
+  const sendersByRoute = new Map<string, Set<string>>();
 
   const messengerChannels = readMessengerChannels(db);
   const discord = messengerChannels?.discord;
@@ -166,6 +170,10 @@ function resolveDiscordConfig(db: DatabaseSync): DiscordReceiverConfig {
       const channels = tokenToChannels.get(effectiveToken) ?? new Set<string>();
       channels.add(channelId);
       tokenToChannels.set(effectiveToken, channels);
+      const senderKey = `${effectiveToken}\u0000${channelId}`;
+      const senders = sendersByRoute.get(senderKey) ?? new Set<string>();
+      for (const senderId of parseAllowedSenderIds(session.allowedSenderIds)) senders.add(senderId);
+      sendersByRoute.set(senderKey, senders);
     }
   }
 
@@ -182,6 +190,7 @@ function resolveDiscordConfig(db: DatabaseSync): DiscordReceiverConfig {
         token,
         source,
         channelId,
+        allowedSenderIds: sendersByRoute.get(`${token}\u0000${channelId}`) ?? new Set<string>(),
       });
     }
   }
@@ -301,6 +310,14 @@ async function forwardDiscordMessage(params: {
 
   const author = message.author;
   if (author && author.bot === true) {
+    return "skipped";
+  }
+  // Every member of a Discord channel can post, so only allowlisted users may drive agents.
+  if (route.allowedSenderIds.size === 0) {
+    warnMissingSenderAllowlist("discord", `channel:${route.channelId}`);
+    return "skipped";
+  }
+  if (!isSenderAllowed(route.allowedSenderIds, author?.id)) {
     return "skipped";
   }
 

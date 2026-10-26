@@ -41,18 +41,14 @@ export function decryptSecret(payload: string): string {
 // ---------------------------------------------------------------------------
 export const OAUTH_BASE_URL = process.env.OAUTH_BASE_URL || `http://${OAUTH_BASE_HOST}:${PORT}`;
 
-// Built-in OAuth client credentials (same as OpenClaw/Claw-Kanban built-in values)
-// Environment variables still take precedence when provided.
-export const BUILTIN_GITHUB_CLIENT_ID = process.env.OAUTH_GITHUB_CLIENT_ID ?? "Iv1.b507a08c87ecfe98";
-export const BUILTIN_GOOGLE_CLIENT_ID =
-  process.env.OAUTH_GOOGLE_CLIENT_ID ??
-  Buffer.from(
-    "MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlcC5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ==",
-    "base64",
-  ).toString();
-export const BUILTIN_GOOGLE_CLIENT_SECRET =
-  process.env.OAUTH_GOOGLE_CLIENT_SECRET ??
-  Buffer.from("R09DU1BYLUs1OEZXUjQ4NkxkTEoxbUxCOHNYQzR6NnFEQWY=", "base64").toString();
+// OAuth client credentials come only from the environment. Upstream shipped another product's
+// GitHub and Google OAuth clients (including an obfuscated Google client secret) as built-in
+// defaults; using them breaks those vendors' terms and can get accounts or the client revoked.
+// Register your own OAuth apps and set OAUTH_GITHUB_CLIENT_ID / OAUTH_GOOGLE_CLIENT_ID /
+// OAUTH_GOOGLE_CLIENT_SECRET to enable GitHub and Google (Antigravity) sign-in.
+export const BUILTIN_GITHUB_CLIENT_ID = process.env.OAUTH_GITHUB_CLIENT_ID ?? "";
+export const BUILTIN_GOOGLE_CLIENT_ID = process.env.OAUTH_GOOGLE_CLIENT_ID ?? "";
+export const BUILTIN_GOOGLE_CLIENT_SECRET = process.env.OAUTH_GOOGLE_CLIENT_SECRET ?? "";
 
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 

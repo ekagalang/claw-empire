@@ -130,6 +130,9 @@ export function registerOAuthRoutes(ctx: RuntimeContext): void {
       ?.replace(/^"|"$/g, "")
       .trim();
     const clientId = customClientId || process.env.OAUTH_GITHUB_CLIENT_ID || BUILTIN_GITHUB_CLIENT_ID;
+    if (!clientId) {
+      return res.status(400).json({ error: "missing_OAUTH_GITHUB_CLIENT_ID" });
+    }
     try {
       const resp = await fetch("https://github.com/login/device/code", {
         method: "POST",
@@ -203,6 +206,9 @@ export function registerOAuthRoutes(ctx: RuntimeContext): void {
       ?.replace(/^"|"$/g, "")
       .trim();
     const clientId = customClientId || process.env.OAUTH_GITHUB_CLIENT_ID || BUILTIN_GITHUB_CLIENT_ID;
+    if (!clientId) {
+      return res.status(400).json({ error: "missing_OAUTH_GITHUB_CLIENT_ID" });
+    }
     try {
       const resp = await fetch("https://github.com/login/oauth/access_token", {
         method: "POST",

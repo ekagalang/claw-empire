@@ -202,6 +202,9 @@ export function ensureVideoPreprodRemotionBestPracticesSkill(args: EnsureRemotio
         env: { ...process.env, FORCE_COLOR: "0" },
         stdio: ["ignore", "pipe", "pipe"],
         timeout: SKILL_AUTO_INSTALL_TIMEOUT_MS,
+        // Node refuses to run npx.cmd without a shell on Windows (CVE-2024-27980); args are constants.
+        shell: process.platform === "win32",
+        windowsHide: true,
       });
       const completedAt = nowMs();
       recordSkillHistory(db, nowMs, providerKey, "succeeded", commandText, startedAt, completedAt, null);

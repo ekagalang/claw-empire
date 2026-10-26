@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { decryptSecret } from "../../../oauth/helpers.ts";
+import { isValidGitHubName, withGitHubTokenEnv } from "../../../security/git-credentials.ts";
 import type { RuntimeContext } from "../../../types/runtime-context.ts";
 
 export type GitHubRouteDeps = Pick<RuntimeContext, "app" | "db" | "broadcast">;
@@ -209,6 +210,17 @@ export function registerGitHubRoutes(deps: GitHubRouteDeps): void {
     if (!token) return res.status(401).json({ error: "github_not_connected" });
     const { owner, repo, branch, target_path } = req.body ?? {};
     if (!owner || !repo) return res.status(400).json({ error: "owner_and_repo_required" });
+    if (!isValidGitHubName(owner) || !isValidGitHubName(repo)) {
+      return res.status(400).json({ error: "invalid_owner_or_repo" });
+    }
+    if (branch !== undefined && branch !== null && branch !== "") {
+      if (typeof branch !== "string" || branch.startsWith("-") || /[\s~^:?*[\\]|\.\.|@\{/.test(branch)) {
+        return res.status(400).json({ error: "invalid_branch" });
+      }
+    }
+    if (target_path !== undefined && target_path !== null && typeof target_path !== "string") {
+      return res.status(400).json({ error: "invalid_target_path" });
+    }
 
     const repoFullName = `${owner}/${repo}`;
     const defaultTarget = path.join(os.homedir(), "Projects", repo);
@@ -223,14 +235,15 @@ export function registerGitHubRoutes(deps: GitHubRouteDeps): void {
     const cloneId = randomUUID();
     activeClones.set(cloneId, { status: "cloning", progress: 0, targetPath, repoFullName });
 
-    const cloneUrl = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
+    // The token is passed per invocation via env, so it is not persisted in the clone's .git/config.
+    const cloneUrl = `https://github.com/${owner}/${repo}.git`;
     const args = ["clone", "--progress"];
     if (branch) {
       args.push("--branch", branch, "--single-branch");
     }
-    args.push(cloneUrl, targetPath);
+    args.push("--", cloneUrl, path.resolve(targetPath));
 
-    const child = spawn("git", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("git", args, { stdio: ["ignore", "pipe", "pipe"], env: withGitHubTokenEnv(token) });
     let stderrBuf = "";
 
     child.stderr?.on("data", (chunk: Buffer) => {
