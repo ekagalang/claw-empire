@@ -44,6 +44,8 @@ If you run behind nginx on the same host, keep:
 
 If you expose the Node server directly on a LAN or VPN, set `HOST=0.0.0.0` and review `ALLOWED_ORIGINS` or `ALLOWED_ORIGIN_SUFFIXES`.
 
+Requests that arrive through nginx (or any proxy that sets `X-Real-IP` / `X-Forwarded-For`) or with a non-loopback `Host` header are never auto-signed-in, so `API_AUTH_TOKEN` is required for every remote client. Make sure nginx forwards the real client address (`proxy_set_header X-Real-IP $remote_addr;`).
+
 ## 3. Install the user service
 
 ```bash

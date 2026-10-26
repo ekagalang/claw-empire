@@ -10,6 +10,7 @@ import {
   cookieToken,
   csrfTokenFromRequest,
   getCsrfToken,
+  getSessionCookieValue,
   hasValidCsrfToken,
   hasValidTaskInterruptControlToken,
   incomingMessageBearerToken,
@@ -64,10 +65,17 @@ describe("auth helpers", () => {
     expect(isAuthenticated(reqWithBearer)).toBe(true);
 
     const reqWithCookie = mockRequest({
-      cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(SESSION_AUTH_TOKEN)}; foo=bar`,
+      cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(getSessionCookieValue())}; foo=bar`,
     });
-    expect(cookieToken(reqWithCookie)).toBe(SESSION_AUTH_TOKEN);
+    expect(cookieToken(reqWithCookie)).toBe(getSessionCookieValue());
     expect(isAuthenticated(reqWithCookie)).toBe(true);
+
+    // The raw API token is not a valid cookie, and the cookie value is not a valid bearer.
+    expect(getSessionCookieValue()).not.toBe(SESSION_AUTH_TOKEN);
+    expect(
+      isAuthenticated(mockRequest({ cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(SESSION_AUTH_TOKEN)}` })),
+    ).toBe(false);
+    expect(isAuthenticated(mockRequest({ authorization: `Bearer ${getSessionCookieValue()}` }))).toBe(false);
 
     const parsed = parseCookies("a=1; b=hello%20world; c=%E3%81%82");
     expect(parsed).toMatchObject({
@@ -79,7 +87,11 @@ describe("auth helpers", () => {
 
   it("origin/path/secure-cookie 규칙을 판별한다", () => {
     expect(isTrustedOrigin("http://localhost:8800")).toBe(true);
-    expect(isTrustedOrigin("https://dev.ts.net")).toBe(true);
+    expect(isTrustedOrigin("http://127.0.0.1:8790")).toBe(true);
+    // Other local dev servers and arbitrary Tailscale Funnel hosts are not trusted.
+    expect(isTrustedOrigin("http://localhost:5173")).toBe(false);
+    expect(isTrustedOrigin("http://localhost")).toBe(false);
+    expect(isTrustedOrigin("https://dev.ts.net")).toBe(false);
     expect(isTrustedOrigin("file://tmp/test")).toBe(false);
     expect(isTrustedOrigin("not-a-url")).toBe(false);
 
@@ -116,8 +128,11 @@ describe("auth helpers", () => {
     expect(firstCookie).toContain("HttpOnly");
 
     append.mockClear();
+    expect(firstCookie).not.toContain(SESSION_AUTH_TOKEN);
+
+    append.mockClear();
     const reqWithCookie = mockRequest({
-      cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(SESSION_AUTH_TOKEN)}`,
+      cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(getSessionCookieValue())}`,
     });
     issueSessionCookie(reqWithCookie, res);
     expect(append).not.toHaveBeenCalled();
@@ -127,13 +142,13 @@ describe("auth helpers", () => {
     const incoming = {
       headers: {
         authorization: `Bearer ${SESSION_AUTH_TOKEN}`,
-        cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(SESSION_AUTH_TOKEN)}`,
+        cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(getSessionCookieValue())}`,
         origin: "http://localhost:8800",
       },
     } as unknown as IncomingMessage;
 
     expect(incomingMessageBearerToken(incoming)).toBe(SESSION_AUTH_TOKEN);
-    expect(incomingMessageCookieToken(incoming)).toBe(SESSION_AUTH_TOKEN);
+    expect(incomingMessageCookieToken(incoming)).toBe(getSessionCookieValue());
     expect(isIncomingMessageAuthenticated(incoming)).toBe(true);
     expect(isIncomingMessageOriginTrusted(incoming)).toBe(true);
   });
@@ -186,5 +201,34 @@ describe("installSecurityMiddleware", () => {
     expect(sessionRes.body?.csrf_token).toBeTypeOf("string");
 
     await request(app).get("/api/protected").set("Cookie", String(cookieHeader)).expect(200, { ok: true });
+  });
+
+  it("세션 자동 발급은 진짜 로컬 요청에만 허용한다", async () => {
+    const app = express();
+    installSecurityMiddleware(app);
+
+    // DNS rebinding: loopback socket but attacker-controlled Host header.
+    await request(app).get("/api/auth/session").set("Host", "evil.example:8790").expect(401);
+    // LAN access through the Vite proxy keeps the LAN Host header.
+    await request(app).get("/api/auth/session").set("Host", "192.168.1.20:8800").expect(401);
+    // A same-host reverse proxy reports the real client.
+    await request(app).get("/api/auth/session").set("X-Forwarded-For", "203.0.113.7").expect(401);
+    await request(app).get("/api/auth/session").set("X-Real-IP", "203.0.113.7").expect(401);
+    await request(app).get("/api/auth/session").set("Forwarded", "for=203.0.113.7").expect(401);
+
+    await request(app).get("/api/auth/session").set("Host", "localhost:8800").expect(200);
+    await request(app).get("/api/auth/session").set("X-Forwarded-For", "127.0.0.1").expect(200);
+    await request(app)
+      .get("/api/auth/session")
+      .set("Host", "evil.example:8790")
+      .set("Authorization", `Bearer ${SESSION_AUTH_TOKEN}`)
+      .expect(200);
+  });
+
+  it("허용되지 않은 localhost 포트의 Origin을 거부한다", async () => {
+    const app = express();
+    installSecurityMiddleware(app);
+    await request(app).get("/api/auth/session").set("Origin", "http://localhost:5173").expect(403);
+    await request(app).get("/api/auth/session").set("Origin", "http://localhost:8800").expect(200);
   });
 });
