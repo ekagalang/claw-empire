@@ -47,6 +47,10 @@ export const PKG_VERSION: string = (() => {
 export const PORT = Number(process.env.PORT ?? 8790);
 export const HOST = process.env.HOST ?? "127.0.0.1";
 export const OAUTH_BASE_HOST = HOST === "0.0.0.0" || HOST === "::" ? "127.0.0.1" : HOST;
+// GitHub repo (owner/name) whose releases the in-app update check follows. This fork tracks
+// its own releases; set UPDATE_CHECK_REPO to follow a different repo.
+export const DEFAULT_UPDATE_REPO = "ekagalang/claw-empire";
+
 export const SESSION_COOKIE_NAME = "claw_session";
 
 export function normalizeSecret(raw: string | undefined): string {
