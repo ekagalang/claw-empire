@@ -107,11 +107,40 @@ jobs:
       - name: Run build
         run: pnpm run build
 
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps
+      # Unit tests first, so a failure is reported before the browser download.
+      - name: Run unit tests
+        run: |
+          pnpm run test:web --coverage
+          pnpm run test:api --coverage
+        env:
+          CI: true
 
-      - name: Run all tests
-        run: pnpm run test:ci
+      # playwright.config.ts defines no projects, so E2E only uses Chromium. Installing every
+      # browser pulled ~180 apt packages (WebKit/Firefox media stacks) and could exhaust the job.
+      - name: Read Playwright version
+        id: playwright-version
+        shell: bash
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright Chromium system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        timeout-minutes: 10
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Run E2E tests
+        run: pnpm run test:e2e
         env:
           CI: true
 
